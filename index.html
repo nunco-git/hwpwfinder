@@ -273,6 +273,12 @@
               <span class="desc">특정 단어가 포함된 줄을 통째로 가져옵니다.</span>
             </span>
           </label>
+          <label>
+            <input type="checkbox" id="mode-table">
+            <span>표에서 옆 칸 값 추출
+              <span class="desc">표 안에서 특정 단어가 있는 칸을 찾아, 바로 오른쪽 칸의 값을 가져옵니다. (.hwpx 업로드 시에만 가능)</span>
+            </span>
+          </label>
         </div>
       </div>
 
@@ -285,6 +291,7 @@
         <div class="tabs" id="tabs">
           <button data-tab="word" class="active">뒤 단어 결과</button>
           <button data-tab="line">줄 전체 결과</button>
+          <button data-tab="table">표 옆칸 결과</button>
         </div>
         <div style="display:flex; align-items:center; gap:12px;">
           <span class="count" id="result-count"></span>
@@ -315,6 +322,18 @@
           </table>
         </div>
       </div>
+
+      <div id="table-view" style="display:none;">
+        <div class="empty" id="table-empty">왼쪽에 텍스트와 단어를 입력한 뒤 추출하기를 눌러주세요.</div>
+        <div class="table-wrap" id="table-table-wrap" style="display:none;">
+          <table>
+            <thead>
+              <tr><th class="col-narrow">번호</th><th class="col-narrow">표 번호</th><th class="col-narrow">행 번호</th><th>찾은 칸</th><th>옆 칸 값</th></tr>
+            </thead>
+            <tbody id="table-tbody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -326,6 +345,7 @@
   const keywordInput = document.getElementById('keyword-input');
   const modeWord = document.getElementById('mode-word');
   const modeLine = document.getElementById('mode-line');
+  const modeTable = document.getElementById('mode-table');
   const runBtn = document.getElementById('run-btn');
   const downloadBtn = document.getElementById('download-btn');
   const statusEl = document.getElementById('status');
@@ -334,15 +354,21 @@
   const tabs = document.getElementById('tabs');
   const wordView = document.getElementById('word-view');
   const lineView = document.getElementById('line-view');
+  const tableView = document.getElementById('table-view');
   const wordEmpty = document.getElementById('word-empty');
   const lineEmpty = document.getElementById('line-empty');
+  const tableEmpty = document.getElementById('table-empty');
   const wordTableWrap = document.getElementById('word-table-wrap');
   const lineTableWrap = document.getElementById('line-table-wrap');
+  const tableTableWrap = document.getElementById('table-table-wrap');
   const wordTbody = document.getElementById('word-tbody');
   const lineTbody = document.getElementById('line-tbody');
+  const tableTbody = document.getElementById('table-tbody');
 
   let wordResults = [];
   let lineResults = [];
+  let tableResults = [];
+  let hwpxTables = null; // .hwpx 업로드 시에만 채워지는 표 구조 [{rows:[[cell,...],...]}, ...]
   let activeTab = 'word';
 
   const fileStatus = document.getElementById('file-status');
@@ -354,26 +380,73 @@
     const isHwpx = /\.hwpx$/i.test(file.name);
 
     if (isHwpx) {
-      fileStatus.textContent = 'HWPX 파일에서 본문을 추출하는 중...';
+      fileStatus.textContent = 'HWPX 파일에서 본문과 표를 추출하는 중...';
       try {
-        const text = await extractHwpxText(file);
-        textInput.value = text;
-        fileStatus.textContent = `"${file.name}" 에서 본문을 불러왔습니다. (문단 단위로 줄이 나뉩니다)`;
+        const result = await extractHwpxText(file);
+        textInput.value = result.text;
+        hwpxTables = result.tables;
+        const tableCount = result.tables.length;
+        fileStatus.textContent = `"${file.name}" 에서 본문을 불러왔습니다. (문단 단위 줄, 표 ${tableCount}개 인식됨)`;
       } catch (err) {
         fileStatus.textContent = '';
+        hwpxTables = null;
         statusEl.textContent = 'HWPX 파일을 읽는 중 오류가 발생했습니다: ' + err.message;
       }
       return;
     }
 
+    hwpxTables = null;
     const reader = new FileReader();
     reader.onload = (ev) => {
       textInput.value = ev.target.result;
-      fileStatus.textContent = `"${file.name}" 을(를) 불러왔습니다.`;
+      fileStatus.textContent = `"${file.name}" 을(를) 불러왔습니다. (일반 텍스트에는 표 구조가 없어 "표에서 옆 칸 값 추출"은 사용할 수 없습니다)`;
     };
     reader.onerror = () => { statusEl.textContent = '파일을 읽는 중 오류가 발생했습니다.'; };
     reader.readAsText(file, 'UTF-8');
   });
+
+  // 사용자가 텍스트를 직접 수정하면 원본 표 구조와 더 이상 일치하지 않으므로 표 데이터를 무효화한다.
+  textInput.addEventListener('input', () => {
+    if (hwpxTables) {
+      hwpxTables = null;
+      fileStatus.textContent = '텍스트가 수정되어 표 구조 정보가 초기화되었습니다.';
+    }
+  });
+
+  // 특정 태그명을 가진 "가장 가까운" 조상 요소를 찾는다 (표 중첩 구조에서 소속을 정확히 판별하기 위함)
+  function closestByTag(node, tagName){
+    let cur = node.parentNode;
+    while (cur && cur.tagName !== tagName) cur = cur.parentNode;
+    return cur;
+  }
+
+  // 표(hp:tbl) 하나를 행/열 구조의 2차원 배열(문자열)로 변환한다.
+  // 중첩된 표(셀 안에 또 다른 표)가 있을 경우, 바깥 표의 행/셀 목록에는 포함시키지 않는다.
+  function parseTable(tblNode){
+    const rows = [];
+    const trNodes = tblNode.getElementsByTagName('hp:tr');
+    for (let ri = 0; ri < trNodes.length; ri++) {
+      const tr = trNodes[ri];
+      if (closestByTag(tr, 'hp:tbl') !== tblNode) continue; // 중첩 표의 행은 제외
+
+      const tcNodes = tr.getElementsByTagName('hp:tc');
+      const cells = [];
+      for (let ci = 0; ci < tcNodes.length; ci++) {
+        const tc = tcNodes[ci];
+        if (closestByTag(tc, 'hp:tr') !== tr) continue; // 중첩 표의 셀은 제외
+
+        const tNodes = tc.getElementsByTagName('hp:t');
+        let cellText = '';
+        for (let k = 0; k < tNodes.length; k++) {
+          if (closestByTag(tNodes[k], 'hp:tc') !== tc) continue; // 중첩 표 안의 텍스트는 제외
+          cellText += tNodes[k].textContent;
+        }
+        cells.push(cellText.trim());
+      }
+      if (cells.length > 0) rows.push(cells);
+    }
+    return rows;
+  }
 
   async function extractHwpxText(file){
     const zip = await JSZip.loadAsync(file);
@@ -390,6 +463,7 @@
     }
 
     const lines = [];
+    const tables = [];
 
     for (const name of sectionFiles) {
       const xmlStr = await zip.files[name].async('string');
@@ -405,10 +479,7 @@
       const paraMap = new Map();
       for (let i = 0; i < tNodes.length; i++) {
         const t = tNodes[i];
-        let node = t.parentNode;
-        while (node && node.tagName !== 'hp:p') {
-          node = node.parentNode;
-        }
+        const node = closestByTag(t, 'hp:p');
         if (!node) continue;
         if (!paraMap.has(node)) paraMap.set(node, []);
         paraMap.get(node).push(t.textContent);
@@ -416,9 +487,18 @@
       for (const parts of paraMap.values()) {
         lines.push(parts.join(''));
       }
+
+      // 표 구조 파싱 (행/셀 단위)
+      const tblNodes = doc.getElementsByTagName('hp:tbl');
+      for (let ti = 0; ti < tblNodes.length; ti++) {
+        // 중첩 표(셀 안의 표)는 최상위 표 목록에 별도로 추가하지 않고, 자신을 감싸는 표의 파싱에서 제외되었으므로
+        // 여기서는 독립된 표로서 그대로 추가한다 (중첩 표 자체도 검색 대상이 되도록).
+        const rows = parseTable(tblNodes[ti]);
+        if (rows.length > 0) tables.push(rows);
+      }
     }
 
-    return lines.join('\n');
+    return { text: lines.join('\n'), tables };
   }
 
   tabs.addEventListener('click', (e) => {
@@ -428,6 +508,7 @@
     [...tabs.children].forEach(b => b.classList.toggle('active', b === btn));
     wordView.style.display = activeTab === 'word' ? '' : 'none';
     lineView.style.display = activeTab === 'line' ? '' : 'none';
+    tableView.style.display = activeTab === 'table' ? '' : 'none';
     updateCount();
   });
 
@@ -443,11 +524,11 @@
   }
 
   function updateCount(){
-    if (activeTab === 'word') {
-      resultCount.textContent = wordResults.length ? `${wordResults.length}건 발견` : '';
-    } else {
-      resultCount.textContent = lineResults.length ? `${lineResults.length}건 발견` : '';
-    }
+    let n = 0;
+    if (activeTab === 'word') n = wordResults.length;
+    else if (activeTab === 'line') n = lineResults.length;
+    else n = tableResults.length;
+    resultCount.textContent = n ? `${n}건 발견` : '';
   }
 
   runBtn.addEventListener('click', () => {
@@ -457,11 +538,12 @@
 
     if (!text.trim()) { statusEl.textContent = '원본 텍스트를 입력해주세요.'; return; }
     if (!keyword) { statusEl.textContent = '찾을 특정 단어를 입력해주세요.'; return; }
-    if (!modeWord.checked && !modeLine.checked) { statusEl.textContent = '추출 방식을 하나 이상 선택해주세요.'; return; }
+    if (!modeWord.checked && !modeLine.checked && !modeTable.checked) { statusEl.textContent = '추출 방식을 하나 이상 선택해주세요.'; return; }
 
     const lines = text.split(/\r\n|\r|\n/);
     wordResults = [];
     lineResults = [];
+    tableResults = [];
 
     lines.forEach((line, lineIdx) => {
       const lineNo = lineIdx + 1;
@@ -486,12 +568,32 @@
       }
     });
 
+    if (modeTable.checked) {
+      if (hwpxTables && hwpxTables.length > 0) {
+        hwpxTables.forEach((rows, tIdx) => {
+          rows.forEach((cells, rIdx) => {
+            for (let c = 0; c < cells.length; c++) {
+              if (cells[c].includes(keyword)) {
+                const next = cells[c + 1];
+                if (next !== undefined) {
+                  tableResults.push({ tableNo: tIdx + 1, rowNo: rIdx + 1, found: cells[c], next });
+                }
+              }
+            }
+          });
+        });
+      } else {
+        statusEl.textContent = '표 구조 정보가 없습니다. .hwpx 파일을 업로드해야 "표에서 옆 칸 값 추출"을 사용할 수 있습니다.';
+      }
+    }
+
     renderWordTable();
     renderLineTable();
+    renderTableTable();
     updateCount();
-    downloadBtn.disabled = (wordResults.length === 0 && lineResults.length === 0);
+    downloadBtn.disabled = (wordResults.length === 0 && lineResults.length === 0 && tableResults.length === 0);
 
-    if (wordResults.length === 0 && lineResults.length === 0) {
+    if (wordResults.length === 0 && lineResults.length === 0 && tableResults.length === 0 && !statusEl.textContent) {
       statusEl.textContent = `"${keyword}"를 텍스트에서 찾지 못했습니다.`;
     }
   });
@@ -538,6 +640,34 @@
     `).join('');
   }
 
+  function renderTableTable(){
+    if (!modeTable.checked || tableResults.length === 0) {
+      tableEmpty.style.display = '';
+      tableTableWrap.style.display = 'none';
+      if (!modeTable.checked) {
+        tableEmpty.textContent = '"표에서 옆 칸 값 추출"이 선택되지 않았습니다.';
+      } else if (!hwpxTables) {
+        tableEmpty.textContent = '표 구조 정보가 없습니다. .hwpx 파일을 업로드해주세요.';
+      } else {
+        tableEmpty.textContent = '일치하는 결과가 없습니다.';
+      }
+      tableTbody.innerHTML = '';
+      return;
+    }
+    tableEmpty.style.display = 'none';
+    tableTableWrap.style.display = '';
+    const keyword = keywordInput.value.trim();
+    tableTbody.innerHTML = tableResults.map((r, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${r.tableNo}</td>
+        <td>${r.rowNo}</td>
+        <td>${highlight(r.found, keyword)}</td>
+        <td><strong>${escapeHtml(r.next)}</strong></td>
+      </tr>
+    `).join('');
+  }
+
   downloadBtn.addEventListener('click', () => {
     const wb = XLSX.utils.book_new();
     let added = false;
@@ -557,6 +687,15 @@
       const ws = XLSX.utils.aoa_to_sheet(rows);
       ws['!cols'] = [{wch:6},{wch:8},{wch:10},{wch:70}];
       XLSX.utils.book_append_sheet(wb, ws, '줄 전체 결과');
+      added = true;
+    }
+
+    if (tableResults.length > 0) {
+      const rows = [['번호', '표 번호', '행 번호', '찾은 칸', '옆 칸 값']];
+      tableResults.forEach((r, i) => rows.push([i + 1, r.tableNo, r.rowNo, r.found, r.next]));
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = [{wch:6},{wch:8},{wch:8},{wch:20},{wch:24}];
+      XLSX.utils.book_append_sheet(wb, ws, '표 옆칸 결과');
       added = true;
     }
 
