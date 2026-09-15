@@ -375,15 +375,6 @@
     reader.readAsText(file, 'UTF-8');
   });
 
-  function decodeXmlEntities(s){
-    return s
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'")
-      .replace(/&amp;/g, '&');
-  }
-
   async function extractHwpxText(file){
     const zip = await JSZip.loadAsync(file);
     const sectionFiles = Object.keys(zip.files)
@@ -399,22 +390,31 @@
     }
 
     const lines = [];
-    const paraRegex = /<hp:p\b[^>]*>([\s\S]*?)<\/hp:p>/g;
-    const tRegex = /<hp:t\b[^>]*>([\s\S]*?)<\/hp:t>/g;
 
     for (const name of sectionFiles) {
-      const xml = await zip.files[name].async('string');
-      let pMatch;
-      paraRegex.lastIndex = 0;
-      while ((pMatch = paraRegex.exec(xml)) !== null) {
-        const paraContent = pMatch[1];
-        let tMatch;
-        let paraText = '';
-        tRegex.lastIndex = 0;
-        while ((tMatch = tRegex.exec(paraContent)) !== null) {
-          paraText += decodeXmlEntities(tMatch[1].replace(/<[^>]+>/g, ''));
+      const xmlStr = await zip.files[name].async('string');
+      const doc = new DOMParser().parseFromString(xmlStr, 'application/xml');
+      if (doc.querySelector('parsererror')) {
+        throw new Error('본문 XML을 해석할 수 없습니다.');
+      }
+
+      // hp:t(텍스트 조각)를 문서 순서대로 순회하면서, 각 조각이 속한 "가장 가까운" hp:p(문단)에 묶는다.
+      // 표 셀 안의 문단은 바깥 문단 안에 중첩되어 있으므로, 가장 가까운 문단을 찾아야
+      // 셀 안 텍스트가 바깥 문단과 섞이지 않고 별도의 줄로 분리된다.
+      const tNodes = doc.getElementsByTagName('hp:t');
+      const paraMap = new Map();
+      for (let i = 0; i < tNodes.length; i++) {
+        const t = tNodes[i];
+        let node = t.parentNode;
+        while (node && node.tagName !== 'hp:p') {
+          node = node.parentNode;
         }
-        lines.push(paraText);
+        if (!node) continue;
+        if (!paraMap.has(node)) paraMap.set(node, []);
+        paraMap.get(node).push(t.textContent);
+      }
+      for (const parts of paraMap.values()) {
+        lines.push(parts.join(''));
       }
     }
 
