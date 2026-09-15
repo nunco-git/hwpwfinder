@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>스마트 문서 정리기</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https:; worker-src 'self' blob: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src https:; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; form-action 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://tessdata.projectnaptha.com https://unpkg.com; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; form-action 'self';">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -524,6 +524,12 @@
       return;
     }
 
+    const MAX_FILE_MB = 50;
+    if (file.size > MAX_FILE_MB * 1024 * 1024) {
+      fileStatus.textContent = `파일이 너무 큽니다 (${MAX_FILE_MB}MB 이하만 지원). 브라우저가 느려지거나 멈출 수 있어 제한합니다.`;
+      return;
+    }
+
     runBtn.disabled = true;
     hwpxTables = null;
     currentFileType = null;
@@ -967,13 +973,24 @@
   }
 
   /* ---------- 엑셀 다운로드 ---------- */
+  // 문서(HWPX/PDF/OCR) 안에 있던 값이 그대로 셀에 들어가므로, =,+,-,@,탭,캐리지리턴으로
+  // 시작하는 값은 엑셀에서 수식으로 해석될 수 있어(수식/CSV 삽입 공격) 문자 앞에 표시를 붙여 무력화한다.
+  function sanitizeCell(v){
+    if (typeof v !== 'string' || v.length === 0) return v;
+    return /^[=+\-@\t\r]/.test(v) ? ("'" + v) : v;
+  }
+
+  function sanitizeFilenamePart(s){
+    return String(s).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 50) || 'result';
+  }
+
   downloadBtn.addEventListener('click', () => {
     const wb = XLSX.utils.book_new();
     let added = false;
 
     if (wordResults.length > 0) {
       const rows = [['번호', '줄 번호', '검색어', '찾은 단어', '바로 다음 단어']];
-      wordResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, r.found, r.next]));
+      wordResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
       const ws = XLSX.utils.aoa_to_sheet(rows);
       ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:16},{wch:24}];
       XLSX.utils.book_append_sheet(wb, ws, '뒤 단어 결과');
@@ -982,7 +999,7 @@
 
     if (lineResults.length > 0) {
       const rows = [['번호', '줄 번호', '검색어', '일치 횟수', '해당 줄 전체']];
-      lineResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, r.matchCount, r.line]));
+      lineResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, r.matchCount, sanitizeCell(r.line)]));
       const ws = XLSX.utils.aoa_to_sheet(rows);
       ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:10},{wch:70}];
       XLSX.utils.book_append_sheet(wb, ws, '해당 줄 결과');
@@ -991,7 +1008,7 @@
 
     if (nextLineResults.length > 0) {
       const rows = [['번호', '줄 번호', '검색어', '일치 횟수', '다음 줄 전체']];
-      nextLineResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, r.matchCount, r.nextLine]));
+      nextLineResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, r.matchCount, sanitizeCell(r.nextLine)]));
       const ws = XLSX.utils.aoa_to_sheet(rows);
       ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:10},{wch:70}];
       XLSX.utils.book_append_sheet(wb, ws, '다음 줄 결과');
@@ -1000,7 +1017,7 @@
 
     if (tableResults.length > 0) {
       const rows = [['번호', '표 번호', '행 번호', '검색어', '찾은 칸', '옆 칸 값']];
-      tableResults.forEach((r, i) => rows.push([i + 1, r.tableNo, r.rowNo, r.keyword, r.found, r.next]));
+      tableResults.forEach((r, i) => rows.push([i + 1, r.tableNo, r.rowNo, r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
       const ws = XLSX.utils.aoa_to_sheet(rows);
       ws['!cols'] = [{wch:6},{wch:8},{wch:8},{wch:14},{wch:20},{wch:24}];
       XLSX.utils.book_append_sheet(wb, ws, '표 옆칸 결과');
@@ -1010,7 +1027,7 @@
     const aggForExport = computeAggregate(lastKeywords);
     if (aggForExport && aggForExport.dataRows.length > 0) {
       const rows = [['번호', ...aggForExport.headers]];
-      aggForExport.dataRows.forEach((cells, i) => rows.push([i + 1, ...cells]));
+      aggForExport.dataRows.forEach((cells, i) => rows.push([i + 1, ...cells.map(sanitizeCell)]));
       const ws = XLSX.utils.aoa_to_sheet(rows);
       ws['!cols'] = [{wch:6}, ...aggForExport.headers.map(() => ({wch:18}))];
       XLSX.utils.book_append_sheet(wb, ws, '통합 결과');
@@ -1018,7 +1035,7 @@
     }
 
     if (!added) return;
-    const label = lastKeywords.length > 0 ? lastKeywords[0] : 'result';
+    const label = sanitizeFilenamePart(lastKeywords.length > 0 ? lastKeywords[0] : 'result');
     XLSX.writeFile(wb, `단어추출_${label}.xlsx`);
   });
 })();
