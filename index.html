@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>단어 추출기</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --bg: #eef1f3;
+    --paper: #ffffff;
+    --ink: #1c2b33;
+    --sub: #5b6b72;
+    --line: #dbe1e4;
+    --accent: #0f6e63;
+    --accent-soft: #e3f1ee;
+    --warn: #b3541e;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+    line-height:1.5;
+  }
+  .shell{
+    max-width:1120px;
+    margin:0 auto;
+    padding:40px 24px 80px;
+  }
+  header{
+    margin-bottom:28px;
+  }
+  header h1{
+    font-size:26px;
+    font-weight:700;
+    margin:0 0 6px;
+    letter-spacing:-0.01em;
+  }
+  header p{
+    margin:0;
+    color:var(--sub);
+    font-size:14.5px;
+  }
+  .layout{
+    display:grid;
+    grid-template-columns: 340px 1fr;
+    gap:20px;
+  }
+  @media (max-width: 860px){
+    .layout{grid-template-columns: 1fr;}
+  }
+  .panel{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:20px;
+  }
+  .field{margin-bottom:16px;}
+  .field label{
+    display:block;
+    font-size:13px;
+    font-weight:600;
+    margin-bottom:6px;
+    color:var(--ink);
+  }
+  .field .hint{
+    font-size:12px;
+    color:var(--sub);
+    margin-top:4px;
+  }
+  textarea{
+    width:100%;
+    min-height:220px;
+    resize:vertical;
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:10px 12px;
+    font-size:13.5px;
+    font-family:inherit;
+    color:var(--ink);
+  }
+  textarea:focus, input:focus{
+    outline:2px solid var(--accent);
+    outline-offset:1px;
+  }
+  input[type=text]{
+    width:100%;
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:10px 12px;
+    font-size:14px;
+    font-family:inherit;
+  }
+  .filebtn{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    border:1px dashed var(--line);
+    border-radius:8px;
+    padding:9px 12px;
+    font-size:13px;
+    color:var(--sub);
+    cursor:pointer;
+    background:#fafbfb;
+  }
+  .filebtn:hover{border-color:var(--accent); color:var(--accent);}
+  input[type=file]{display:none;}
+  .checks{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .checks label{
+    display:flex;
+    align-items:flex-start;
+    gap:8px;
+    font-size:13.5px;
+    font-weight:500;
+    cursor:pointer;
+  }
+  .checks input{margin-top:3px;}
+  .checks .desc{font-weight:400; color:var(--sub); font-size:12.5px; display:block; margin-top:2px;}
+  button.primary{
+    width:100%;
+    background:var(--accent);
+    color:#fff;
+    border:none;
+    border-radius:8px;
+    padding:12px 14px;
+    font-size:14.5px;
+    font-weight:600;
+    cursor:pointer;
+    margin-top:4px;
+  }
+  button.primary:hover{background:#0b564d;}
+  button.primary:disabled{background:#a9b6b4; cursor:not-allowed;}
+  button.ghost{
+    background:none;
+    border:1px solid var(--line);
+    color:var(--ink);
+    border-radius:8px;
+    padding:9px 14px;
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+  }
+  button.ghost:hover{border-color:var(--accent); color:var(--accent);}
+  .results-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:14px;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+  .tabs{
+    display:flex;
+    gap:6px;
+    background:#f1f4f4;
+    padding:4px;
+    border-radius:9px;
+  }
+  .tabs button{
+    border:none;
+    background:none;
+    padding:8px 14px;
+    font-size:13.5px;
+    font-weight:600;
+    color:var(--sub);
+    border-radius:7px;
+    cursor:pointer;
+  }
+  .tabs button.active{
+    background:#fff;
+    color:var(--accent);
+    box-shadow:0 1px 2px rgba(0,0,0,.08);
+  }
+  .count{
+    font-size:12.5px;
+    color:var(--sub);
+  }
+  .empty{
+    color:var(--sub);
+    font-size:13.5px;
+    padding:40px 10px;
+    text-align:center;
+    border:1px dashed var(--line);
+    border-radius:8px;
+  }
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13.5px;
+  }
+  thead th{
+    text-align:left;
+    font-size:12px;
+    color:var(--sub);
+    font-weight:600;
+    padding:8px 10px;
+    border-bottom:1px solid var(--line);
+    white-space:nowrap;
+  }
+  tbody td{
+    padding:9px 10px;
+    border-bottom:1px solid #edf0f1;
+    vertical-align:top;
+  }
+  tbody tr:hover{background:#f7fafa;}
+  mark{
+    background:var(--accent-soft);
+    color:var(--accent);
+    padding:0 2px;
+    border-radius:3px;
+    font-weight:600;
+  }
+  .table-wrap{
+    max-height:520px;
+    overflow:auto;
+    border:1px solid var(--line);
+    border-radius:8px;
+  }
+  .table-wrap table thead{position:sticky; top:0; background:#fff; z-index:1;}
+  .status{
+    font-size:12.5px;
+    color:var(--warn);
+    margin-top:8px;
+    min-height:16px;
+  }
+  .col-narrow{width:64px;}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <h1>단어 추출기</h1>
+    <p>텍스트에서 특정 단어를 찾아, 그 뒤 단어 또는 해당 줄 전체를 순서대로 모아 엑셀로 내려받습니다.</p>
+  </header>
+
+  <div class="layout">
+    <div class="panel">
+      <div class="field">
+        <label for="text-input">원본 텍스트</label>
+        <textarea id="text-input" placeholder="여기에 텍스트를 붙여넣거나, 아래에서 .hwpx 파일을 불러오세요."></textarea>
+        <label class="filebtn" style="margin-top:8px;">
+          📄 <span id="file-btn-label">.hwpx / .txt 파일 불러오기</span>
+          <input type="file" id="file-input" accept=".hwpx,.txt">
+        </label>
+        <div class="hint" id="file-status"></div>
+      </div>
+
+      <div class="field">
+        <label for="keyword-input">찾을 특정 단어</label>
+        <input type="text" id="keyword-input" placeholder="예: 담당자">
+        <div class="hint">텍스트에 등장하는 모든 위치를 순서대로 찾아냅니다.</div>
+      </div>
+
+      <div class="field">
+        <label>추출 방식</label>
+        <div class="checks">
+          <label>
+            <input type="checkbox" id="mode-word" checked>
+            <span>뒤에 오는 단어만 추출
+              <span class="desc">특정 단어 바로 다음 칸(어절)의 단어 전체를 가져옵니다.</span>
+            </span>
+          </label>
+          <label>
+            <input type="checkbox" id="mode-line" checked>
+            <span>해당 줄 전체 추출
+              <span class="desc">특정 단어가 포함된 줄을 통째로 가져옵니다.</span>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <button class="primary" id="run-btn">추출하기</button>
+      <div class="status" id="status"></div>
+    </div>
+
+    <div class="panel">
+      <div class="results-head">
+        <div class="tabs" id="tabs">
+          <button data-tab="word" class="active">뒤 단어 결과</button>
+          <button data-tab="line">줄 전체 결과</button>
+        </div>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="count" id="result-count"></span>
+          <button class="ghost" id="download-btn" disabled>엑셀로 다운로드</button>
+        </div>
+      </div>
+
+      <div id="word-view">
+        <div class="empty" id="word-empty">왼쪽에 텍스트와 단어를 입력한 뒤 추출하기를 눌러주세요.</div>
+        <div class="table-wrap" id="word-table-wrap" style="display:none;">
+          <table>
+            <thead>
+              <tr><th class="col-narrow">번호</th><th class="col-narrow">줄 번호</th><th>찾은 단어</th><th>바로 다음 단어</th></tr>
+            </thead>
+            <tbody id="word-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="line-view" style="display:none;">
+        <div class="empty" id="line-empty">왼쪽에 텍스트와 단어를 입력한 뒤 추출하기를 눌러주세요.</div>
+        <div class="table-wrap" id="line-table-wrap" style="display:none;">
+          <table>
+            <thead>
+              <tr><th class="col-narrow">번호</th><th class="col-narrow">줄 번호</th><th class="col-narrow">일치 횟수</th><th>해당 줄 전체</th></tr>
+            </thead>
+            <tbody id="line-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const textInput = document.getElementById('text-input');
+  const fileInput = document.getElementById('file-input');
+  const keywordInput = document.getElementById('keyword-input');
+  const modeWord = document.getElementById('mode-word');
+  const modeLine = document.getElementById('mode-line');
+  const runBtn = document.getElementById('run-btn');
+  const downloadBtn = document.getElementById('download-btn');
+  const statusEl = document.getElementById('status');
+  const resultCount = document.getElementById('result-count');
+
+  const tabs = document.getElementById('tabs');
+  const wordView = document.getElementById('word-view');
+  const lineView = document.getElementById('line-view');
+  const wordEmpty = document.getElementById('word-empty');
+  const lineEmpty = document.getElementById('line-empty');
+  const wordTableWrap = document.getElementById('word-table-wrap');
+  const lineTableWrap = document.getElementById('line-table-wrap');
+  const wordTbody = document.getElementById('word-tbody');
+  const lineTbody = document.getElementById('line-tbody');
+
+  let wordResults = [];
+  let lineResults = [];
+  let activeTab = 'word';
+
+  const fileStatus = document.getElementById('file-status');
+
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    statusEl.textContent = '';
+    const isHwpx = /\.hwpx$/i.test(file.name);
+
+    if (isHwpx) {
+      fileStatus.textContent = 'HWPX 파일에서 본문을 추출하는 중...';
+      try {
+        const text = await extractHwpxText(file);
+        textInput.value = text;
+        fileStatus.textContent = `"${file.name}" 에서 본문을 불러왔습니다. (문단 단위로 줄이 나뉩니다)`;
+      } catch (err) {
+        fileStatus.textContent = '';
+        statusEl.textContent = 'HWPX 파일을 읽는 중 오류가 발생했습니다: ' + err.message;
+      }
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      textInput.value = ev.target.result;
+      fileStatus.textContent = `"${file.name}" 을(를) 불러왔습니다.`;
+    };
+    reader.onerror = () => { statusEl.textContent = '파일을 읽는 중 오류가 발생했습니다.'; };
+    reader.readAsText(file, 'UTF-8');
+  });
+
+  function decodeXmlEntities(s){
+    return s
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, '&');
+  }
+
+  async function extractHwpxText(file){
+    const zip = await JSZip.loadAsync(file);
+    const sectionFiles = Object.keys(zip.files)
+      .filter(name => /^Contents\/section\d+\.xml$/i.test(name))
+      .sort((a, b) => {
+        const na = parseInt(a.match(/section(\d+)/i)[1], 10);
+        const nb = parseInt(b.match(/section(\d+)/i)[1], 10);
+        return na - nb;
+      });
+
+    if (sectionFiles.length === 0) {
+      throw new Error('본문(section) 파일을 찾을 수 없습니다. 올바른 HWPX 파일인지 확인해주세요.');
+    }
+
+    const lines = [];
+    const paraRegex = /<hp:p\b[^>]*>([\s\S]*?)<\/hp:p>/g;
+    const tRegex = /<hp:t\b[^>]*>([\s\S]*?)<\/hp:t>/g;
+
+    for (const name of sectionFiles) {
+      const xml = await zip.files[name].async('string');
+      let pMatch;
+      paraRegex.lastIndex = 0;
+      while ((pMatch = paraRegex.exec(xml)) !== null) {
+        const paraContent = pMatch[1];
+        let tMatch;
+        let paraText = '';
+        tRegex.lastIndex = 0;
+        while ((tMatch = tRegex.exec(paraContent)) !== null) {
+          paraText += decodeXmlEntities(tMatch[1].replace(/<[^>]+>/g, ''));
+        }
+        lines.push(paraText);
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  tabs.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-tab]');
+    if (!btn) return;
+    activeTab = btn.dataset.tab;
+    [...tabs.children].forEach(b => b.classList.toggle('active', b === btn));
+    wordView.style.display = activeTab === 'word' ? '' : 'none';
+    lineView.style.display = activeTab === 'line' ? '' : 'none';
+    updateCount();
+  });
+
+  function escapeHtml(s){
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function highlight(text, keyword){
+    if (!keyword) return escapeHtml(text);
+    const escaped = escapeHtml(text);
+    const escKw = escapeHtml(keyword).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return escaped.replace(new RegExp(escKw, 'g'), m => `<mark>${m}</mark>`);
+  }
+
+  function updateCount(){
+    if (activeTab === 'word') {
+      resultCount.textContent = wordResults.length ? `${wordResults.length}건 발견` : '';
+    } else {
+      resultCount.textContent = lineResults.length ? `${lineResults.length}건 발견` : '';
+    }
+  }
+
+  runBtn.addEventListener('click', () => {
+    const text = textInput.value;
+    const keyword = keywordInput.value.trim();
+    statusEl.textContent = '';
+
+    if (!text.trim()) { statusEl.textContent = '원본 텍스트를 입력해주세요.'; return; }
+    if (!keyword) { statusEl.textContent = '찾을 특정 단어를 입력해주세요.'; return; }
+    if (!modeWord.checked && !modeLine.checked) { statusEl.textContent = '추출 방식을 하나 이상 선택해주세요.'; return; }
+
+    const lines = text.split(/\r\n|\r|\n/);
+    wordResults = [];
+    lineResults = [];
+
+    lines.forEach((line, lineIdx) => {
+      const lineNo = lineIdx + 1;
+      const tokens = line.split(/\s+/).filter(t => t.length > 0);
+
+      if (modeWord.checked) {
+        for (let i = 0; i < tokens.length; i++) {
+          if (tokens[i] === keyword) {
+            const next = tokens[i + 1];
+            if (next !== undefined) {
+              wordResults.push({ lineNo, found: tokens[i], next });
+            }
+          }
+        }
+      }
+
+      if (modeLine.checked) {
+        const matchCount = tokens.filter(t => t === keyword).length || (line.includes(keyword) ? (line.split(keyword).length - 1) : 0);
+        if (line.includes(keyword)) {
+          lineResults.push({ lineNo, matchCount, line });
+        }
+      }
+    });
+
+    renderWordTable();
+    renderLineTable();
+    updateCount();
+    downloadBtn.disabled = (wordResults.length === 0 && lineResults.length === 0);
+
+    if (wordResults.length === 0 && lineResults.length === 0) {
+      statusEl.textContent = `"${keyword}"를 텍스트에서 찾지 못했습니다.`;
+    }
+  });
+
+  function renderWordTable(){
+    if (!modeWord.checked || wordResults.length === 0) {
+      wordEmpty.style.display = '';
+      wordTableWrap.style.display = 'none';
+      wordEmpty.textContent = modeWord.checked ? '일치하는 결과가 없습니다.' : '"뒤에 오는 단어만 추출"이 선택되지 않았습니다.';
+      wordTbody.innerHTML = '';
+      return;
+    }
+    wordEmpty.style.display = 'none';
+    wordTableWrap.style.display = '';
+    const keyword = keywordInput.value.trim();
+    wordTbody.innerHTML = wordResults.map((r, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${r.lineNo}</td>
+        <td>${highlight(r.found, keyword)}</td>
+        <td><strong>${escapeHtml(r.next)}</strong></td>
+      </tr>
+    `).join('');
+  }
+
+  function renderLineTable(){
+    if (!modeLine.checked || lineResults.length === 0) {
+      lineEmpty.style.display = '';
+      lineTableWrap.style.display = 'none';
+      lineEmpty.textContent = modeLine.checked ? '일치하는 결과가 없습니다.' : '"해당 줄 전체 추출"이 선택되지 않았습니다.';
+      lineTbody.innerHTML = '';
+      return;
+    }
+    lineEmpty.style.display = 'none';
+    lineTableWrap.style.display = '';
+    const keyword = keywordInput.value.trim();
+    lineTbody.innerHTML = lineResults.map((r, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${r.lineNo}</td>
+        <td>${r.matchCount}</td>
+        <td>${highlight(r.line, keyword)}</td>
+      </tr>
+    `).join('');
+  }
+
+  downloadBtn.addEventListener('click', () => {
+    const wb = XLSX.utils.book_new();
+    let added = false;
+
+    if (wordResults.length > 0) {
+      const rows = [['번호', '줄 번호', '찾은 단어', '바로 다음 단어']];
+      wordResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.found, r.next]));
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = [{wch:6},{wch:8},{wch:16},{wch:24}];
+      XLSX.utils.book_append_sheet(wb, ws, '뒤 단어 결과');
+      added = true;
+    }
+
+    if (lineResults.length > 0) {
+      const rows = [['번호', '줄 번호', '일치 횟수', '해당 줄 전체']];
+      lineResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.matchCount, r.line]));
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = [{wch:6},{wch:8},{wch:10},{wch:70}];
+      XLSX.utils.book_append_sheet(wb, ws, '줄 전체 결과');
+      added = true;
+    }
+
+    if (!added) return;
+    const keyword = keywordInput.value.trim() || 'result';
+    XLSX.writeFile(wb, `단어추출_${keyword}.xlsx`);
+  });
+})();
+</script>
+</body>
+</html>
