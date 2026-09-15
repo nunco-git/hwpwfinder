@@ -3,349 +3,380 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>단어 추출기</title>
+<title>스마트 단어 추출기</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
 <style>
-  :root{
-    --bg: #eef1f3;
-    --paper: #ffffff;
-    --ink: #1c2b33;
-    --sub: #5b6b72;
-    --line: #dbe1e4;
-    --accent: #0f6e63;
-    --accent-soft: #e3f1ee;
-    --warn: #b3541e;
+  * { box-sizing: border-box; }
+  button, .btn-reset, .btn-del-x, .run-btn, .drop-zone, .keyword-row .remove-kw {
+    transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease,
+                box-shadow 0.18s ease, transform 0.12s ease;
   }
-  *{box-sizing:border-box;}
-  body{
-    margin:0;
-    background:var(--bg);
-    color:var(--ink);
-    font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
-    line-height:1.5;
+  button:active, .run-btn:not(:disabled):active { transform: scale(0.97); }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Pretendard Variable", "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    background: #f8fafc;
+    margin: 0;
+    padding: 24px;
+    color: #334155;
   }
-  .shell{
-    max-width:1120px;
-    margin:0 auto;
-    padding:40px 24px 80px;
+
+  .app-container {
+    max-width: 1500px;
+    margin: 0 auto;
+    animation: app-fade-in 0.4s ease;
   }
-  header{
-    margin-bottom:28px;
+  @keyframes app-fade-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
   }
-  header h1{
-    font-size:26px;
-    font-weight:700;
-    margin:0 0 6px;
-    letter-spacing:-0.01em;
+
+  .main-content {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 28px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.05);
   }
-  header p{
-    margin:0;
-    color:var(--sub);
-    font-size:14.5px;
+
+  /* ===== 상단: 제목 / 특징 / 드래그앤드롭존 ===== */
+  .top-section { display: flex; align-items: stretch; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
+
+  .top-col-title {
+    flex: 0 0 20%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    text-align: center;
+    background: linear-gradient(160deg, #fff7ed 0%, #ffedd5 100%);
+    border: 1px solid #fed7aa; border-radius: 12px; padding: 14px 10px;
+    box-shadow: 0 1px 3px rgba(194,65,12,0.06);
+    min-height: 150px;
   }
-  .layout{
-    display:grid;
-    grid-template-columns: 340px 1fr;
-    gap:20px;
+  .top-col-title:hover { border-color: #fdba74; box-shadow: 0 6px 16px rgba(194,65,12,0.12); transform: translateY(-1px); }
+  .title-icon { font-size: 2rem; line-height: 1; filter: drop-shadow(0 1px 1px rgba(194,65,12,0.15)); }
+  .title-main { margin: 0; color: #9a3412; font-size: 1.6rem; font-weight: 400; font-family: 'Jua', sans-serif; line-height: 1.25; }
+  .title-badge { background: #dcfce7; color: #166534; font-size: 0.78rem; padding: 4px 10px; border-radius: 20px; font-weight: 700; }
+
+  .top-col-guide { flex: 1 1 40%; min-width: 260px; display: flex; }
+  .feature-banner {
+    width: 100%;
+    background: linear-gradient(180deg, #f0fdf4 0%, #ecfdf5 100%);
+    border: 1px solid #bbf7d0; border-radius: 14px; padding: 16px 18px; color: #166534;
+    box-shadow: 0 1px 3px rgba(16,24,40,0.04);
   }
-  @media (max-width: 860px){
-    .layout{grid-template-columns: 1fr;}
+  .feature-banner:hover { border-color: #86efac; box-shadow: 0 6px 16px rgba(22,163,74,0.12); transform: translateY(-1px); }
+  .feature-banner-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .feature-banner strong.head { font-size: 1rem; color: #15803d; }
+  .feature-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .feature-list li { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.55); border: 1px solid rgba(187,247,208,0.7); border-radius: 10px; padding: 8px 12px; font-size: 0.82rem; }
+  .feature-list .feat-icon { flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%; background: #16a34a; color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .feature-list .feat-desc { color: #15803d; font-weight: 600; }
+  .btn-reset { padding: 5px 14px; background: white; border: 1.5px solid #ef4444; color: #ef4444; border-radius: 20px; font-size: 0.78rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .btn-reset:hover { background: #ef4444; color: white; }
+
+  .top-col-drop { flex: 0 0 28%; min-width: 220px; display: flex; flex-direction: column; gap: 6px; }
+  .drop-zone {
+    flex: 1; border: 2px dashed #3b82f6; border-radius: 12px; padding: 18px; text-align: center;
+    background-color: #eff6ff; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center;
   }
-  .panel{
-    background:var(--paper);
-    border:1px solid var(--line);
-    border-radius:10px;
-    padding:20px;
+  .drop-zone:hover, .drop-zone.highlight { background-color: #dbeafe; border-color: #1d4ed8; }
+  .drop-zone .drop-icon { font-size: 28px; margin-bottom: 6px; }
+  .drop-zone strong { display: block; font-size: 0.92rem; line-height: 1.5; color: #1e3a8a; }
+  input[type="file"] { display: none; }
+  .file-status-line { font-size: 0.75rem; color: #64748b; text-align: center; min-height: 16px; }
+
+  /* ===== 하단: 좌측 설정 패널 / 우측 결과 미리보기 ===== */
+  .editor-layout { display: flex; align-items: stretch; gap: 16px; flex-wrap: nowrap; }
+  @media (max-width: 980px) { .editor-layout { flex-direction: column; } }
+
+  .settings-panel {
+    flex: 0 0 300px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fafafa; padding: 16px;
   }
-  .field{margin-bottom:16px;}
-  .field label{
-    display:block;
-    font-size:13px;
-    font-weight:600;
-    margin-bottom:6px;
-    color:var(--ink);
+  .settings-panel:hover { border-color: #93c5fd; box-shadow: 0 6px 16px rgba(37,99,235,0.08); }
+  .settings-panel h3 { margin: 0 0 10px; font-size: 0.95rem; color: #0f172a; }
+
+  .field { margin-bottom: 18px; }
+  .field:last-child { margin-bottom: 0; }
+  .field-label { display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
+  .field-label .kw-count { font-weight: 500; color: #64748b; font-size: 0.78rem; }
+  .hint { font-size: 0.72rem; color: #64748b; margin-top: 6px; line-height: 1.5; }
+
+  .keyword-list { display: flex; flex-direction: column; gap: 6px; }
+  .keyword-row { display: flex; align-items: center; gap: 6px; }
+  .keyword-row input { flex: 1; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit; background: white; }
+  .keyword-row input:focus { outline: 2px solid #2563eb; outline-offset: 1px; }
+  .keyword-row .remove-kw {
+    flex: none; width: 26px; height: 26px; border: 1px solid #e2e8f0; background: white; border-radius: 6px;
+    color: #94a3b8; cursor: pointer; font-size: 13px; line-height: 1;
   }
-  .field .hint{
-    font-size:12px;
-    color:var(--sub);
-    margin-top:4px;
+  .keyword-row .remove-kw:hover { background: #fee2e2; border-color: #ef4444; color: #ef4444; }
+  .btn-add-kw {
+    width: 100%; margin-top: 8px; border: 1px dashed #93c5fd; background: #eff6ff; color: #1d4ed8;
+    border-radius: 8px; padding: 8px; font-size: 0.8rem; font-weight: 700; cursor: pointer;
   }
-  textarea{
-    width:100%;
-    min-height:220px;
-    resize:vertical;
-    border:1px solid var(--line);
-    border-radius:8px;
-    padding:10px 12px;
-    font-size:13.5px;
-    font-family:inherit;
-    color:var(--ink);
+  .btn-add-kw:hover { background: #dbeafe; }
+  .btn-add-kw:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .opt-list { display: flex; flex-direction: column; gap: 8px; }
+  .opt-list label { display: flex; align-items: flex-start; gap: 8px; font-size: 0.82rem; font-weight: 600; cursor: pointer; color: #0f172a; }
+  .opt-list input[type=checkbox] { margin-top: 3px; }
+  .opt-list .desc { display: block; font-weight: 400; color: #64748b; font-size: 0.74rem; margin-top: 2px; }
+  .opt-item { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; background: white; }
+  .opt-item + .opt-item { margin-top: 2px; }
+  .count-field {
+    margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0;
+    font-size: 0.76rem; font-weight: 600; color: #334155; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
   }
-  textarea:focus, input:focus{
-    outline:2px solid var(--accent);
-    outline-offset:1px;
+  .count-field input[type=number] {
+    width: 52px; border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px 6px; font-size: 0.78rem; font-family: inherit;
   }
-  input[type=text]{
-    width:100%;
-    border:1px solid var(--line);
-    border-radius:8px;
-    padding:10px 12px;
-    font-size:14px;
-    font-family:inherit;
+  .count-field .desc { flex-basis: 100%; margin-top: 2px; }
+
+  .run-btn {
+    width: 100%; padding: 13px; background: #10b981; color: white; border: none; border-radius: 10px;
+    font-size: 0.98rem; font-weight: 700; cursor: pointer; margin-top: 4px; box-shadow: 0 2px 6px rgba(16,185,129,0.25);
   }
-  .filebtn{
-    display:inline-flex;
-    align-items:center;
-    gap:8px;
-    border:1px dashed var(--line);
-    border-radius:8px;
-    padding:9px 12px;
-    font-size:13px;
-    color:var(--sub);
-    cursor:pointer;
-    background:#fafbfb;
+  .run-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(0,0,0,0.15); }
+  .run-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+  .status { font-size: 0.78rem; color: #b3541e; margin-top: 8px; min-height: 16px; text-align: center; }
+
+  .preview-panel {
+    flex: 1 1 auto; min-width: 0; border: 1px solid #e2e8f0; border-radius: 10px; background: #fafafa;
+    padding: 16px; display: flex; flex-direction: column;
   }
-  .filebtn:hover{border-color:var(--accent); color:var(--accent);}
-  input[type=file]{display:none;}
-  .checks{
-    display:flex;
-    flex-direction:column;
-    gap:8px;
+  .preview-panel:hover { border-color: #93c5fd; box-shadow: 0 6px 16px rgba(37,99,235,0.08); }
+  .preview-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+  .preview-title { font-size: 0.95rem; font-weight: 800; color: #334155; margin: 0; }
+
+  .tabs { display: flex; gap: 4px; background: #eef1f3; padding: 4px; border-radius: 9px; flex-wrap: wrap; }
+  .tabs button { border: none; background: none; padding: 7px 12px; font-size: 0.8rem; font-weight: 700; color: #64748b; border-radius: 7px; cursor: pointer; }
+  .tabs button.active { background: #fff; color: #1d4ed8; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+  .count { font-size: 0.75rem; color: #64748b; }
+  .btn-download {
+    background: white; border: 1px solid #10b981; color: #059669; border-radius: 8px; padding: 8px 14px;
+    font-size: 0.8rem; font-weight: 700; cursor: pointer;
   }
-  .checks label{
-    display:flex;
-    align-items:flex-start;
-    gap:8px;
-    font-size:13.5px;
-    font-weight:500;
-    cursor:pointer;
+  .btn-download:hover:not(:disabled) { background: #ecfdf5; }
+  .btn-download:disabled { border-color: #cbd5e1; color: #94a3b8; cursor: not-allowed; background: white; }
+
+  .preview-box { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 8px; padding: 4px; min-height: 380px; max-height: 68vh; overflow: auto; }
+  .empty { color: #64748b; font-size: 0.83rem; padding: 60px 10px; text-align: center; }
+  .table-wrap { max-height: 68vh; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.83rem; background: white; }
+  thead th { text-align: left; font-size: 0.74rem; color: #64748b; font-weight: 700; padding: 9px 10px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; position: sticky; top: 0; white-space: nowrap; }
+  tbody td{ padding: 8px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; white-space: pre-line; }
+  tbody tr:hover { background: #f8fafc; }
+  mark { background: #dbeafe; color: #1d4ed8; padding: 0 2px; border-radius: 3px; font-weight: 700; }
+  .col-narrow { width: 60px; }
+
+  @media (max-width: 1180px) {
+    .top-col-title, .top-col-guide, .top-col-drop { flex-basis: 100%; }
   }
-  .checks input{margin-top:3px;}
-  .checks .desc{font-weight:400; color:var(--sub); font-size:12.5px; display:block; margin-top:2px;}
-  button.primary{
-    width:100%;
-    background:var(--accent);
-    color:#fff;
-    border:none;
-    border-radius:8px;
-    padding:12px 14px;
-    font-size:14.5px;
-    font-weight:600;
-    cursor:pointer;
-    margin-top:4px;
-  }
-  button.primary:hover{background:#0b564d;}
-  button.primary:disabled{background:#a9b6b4; cursor:not-allowed;}
-  button.ghost{
-    background:none;
-    border:1px solid var(--line);
-    color:var(--ink);
-    border-radius:8px;
-    padding:9px 14px;
-    font-size:13px;
-    font-weight:600;
-    cursor:pointer;
-  }
-  button.ghost:hover{border-color:var(--accent); color:var(--accent);}
-  .results-head{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    margin-bottom:14px;
-    flex-wrap:wrap;
-    gap:10px;
-  }
-  .tabs{
-    display:flex;
-    gap:6px;
-    background:#f1f4f4;
-    padding:4px;
-    border-radius:9px;
-  }
-  .tabs button{
-    border:none;
-    background:none;
-    padding:8px 14px;
-    font-size:13.5px;
-    font-weight:600;
-    color:var(--sub);
-    border-radius:7px;
-    cursor:pointer;
-  }
-  .tabs button.active{
-    background:#fff;
-    color:var(--accent);
-    box-shadow:0 1px 2px rgba(0,0,0,.08);
-  }
-  .count{
-    font-size:12.5px;
-    color:var(--sub);
-  }
-  .empty{
-    color:var(--sub);
-    font-size:13.5px;
-    padding:40px 10px;
-    text-align:center;
-    border:1px dashed var(--line);
-    border-radius:8px;
-  }
-  table{
-    width:100%;
-    border-collapse:collapse;
-    font-size:13.5px;
-  }
-  thead th{
-    text-align:left;
-    font-size:12px;
-    color:var(--sub);
-    font-weight:600;
-    padding:8px 10px;
-    border-bottom:1px solid var(--line);
-    white-space:nowrap;
-  }
-  tbody td{
-    padding:9px 10px;
-    border-bottom:1px solid #edf0f1;
-    vertical-align:top;
-  }
-  tbody tr:hover{background:#f7fafa;}
-  mark{
-    background:var(--accent-soft);
-    color:var(--accent);
-    padding:0 2px;
-    border-radius:3px;
-    font-weight:600;
-  }
-  .table-wrap{
-    max-height:520px;
-    overflow:auto;
-    border:1px solid var(--line);
-    border-radius:8px;
-  }
-  .table-wrap table thead{position:sticky; top:0; background:#fff; z-index:1;}
-  .status{
-    font-size:12.5px;
-    color:var(--warn);
-    margin-top:8px;
-    min-height:16px;
-  }
-  .col-narrow{width:64px;}
 </style>
 </head>
 <body>
-<div class="shell">
-  <header>
-    <h1>단어 추출기</h1>
-    <p>텍스트에서 특정 단어를 찾아, 그 뒤 단어 또는 해당 줄 전체를 순서대로 모아 엑셀로 내려받습니다.</p>
-  </header>
 
-  <div class="layout">
-    <div class="panel">
-      <div class="field">
-        <label for="text-input">원본 텍스트</label>
-        <textarea id="text-input" placeholder="여기에 텍스트를 붙여넣거나, 아래에서 .hwpx 파일을 불러오세요."></textarea>
-        <label class="filebtn" style="margin-top:8px;">
-          📄 <span id="file-btn-label">.hwpx / .txt 파일 불러오기</span>
-          <input type="file" id="file-input" accept=".hwpx,.txt">
-        </label>
-        <div class="hint" id="file-status"></div>
+<div class="app-container">
+  <div class="main-content">
+
+    <div class="top-section">
+      <div class="top-col-title">
+        <div class="title-icon">🔍</div>
+        <h2 class="title-main">스마트<br>단어 추출기</h2>
+        <span class="title-badge">🔒 브라우저 안에서만 처리</span>
       </div>
 
-      <div class="field">
-        <label for="keyword-input">찾을 특정 단어</label>
-        <input type="text" id="keyword-input" placeholder="예: 담당자">
-        <div class="hint">텍스트에 등장하는 모든 위치를 순서대로 찾아냅니다.</div>
-      </div>
-
-      <div class="field">
-        <label>추출 방식</label>
-        <div class="checks">
-          <label>
-            <input type="checkbox" id="mode-word" checked>
-            <span>뒤에 오는 단어만 추출
-              <span class="desc">특정 단어 바로 다음 칸(어절)의 단어 전체를 가져옵니다.</span>
-            </span>
-          </label>
-          <label>
-            <input type="checkbox" id="mode-line" checked>
-            <span>해당 줄 전체 추출
-              <span class="desc">특정 단어가 포함된 줄을 통째로 가져옵니다.</span>
-            </span>
-          </label>
-          <label>
-            <input type="checkbox" id="mode-table">
-            <span>표에서 옆 칸 값 추출
-              <span class="desc">표 안에서 특정 단어가 있는 칸을 찾아, 바로 오른쪽 칸의 값을 가져옵니다. (.hwpx 업로드 시에만 가능)</span>
-            </span>
-          </label>
+      <div class="top-col-guide">
+        <div class="feature-banner">
+          <div class="feature-banner-header">
+            <strong class="head">🔒 개인정보·내부자료 유출 걱정 없음</strong>
+            <button class="btn-reset" id="reset-btn">🗑️ 초기화</button>
+          </div>
+          <ul class="feature-list">
+            <li><span class="feat-icon">🌐</span><span><strong>외부 서버 전송 ZERO</strong> <span class="feat-desc">: 파일이 밖으로 나가지 않고 브라우저 안에서만 처리</span></span></li>
+            <li><span class="feat-icon">📊</span><span><strong>표 구조까지 인식</strong> <span class="feat-desc">: HWPX 표 안 셀 값도 옆 칸까지 정확히 추출</span></span></li>
+            <li><span class="feat-icon">📥</span><span><strong>검색결과 엑셀파일 정리</strong> <span class="feat-desc">: 검색한 결과값을 엑셀파일로 간편하게 취합, 정리</span></span></li>
+          </ul>
         </div>
       </div>
 
-      <button class="primary" id="run-btn">추출하기</button>
-      <div class="status" id="status"></div>
+      <div class="top-col-drop">
+        <div class="drop-zone" id="drop-zone">
+          <span class="drop-icon">📁</span>
+          <strong>클릭하거나 파일을<br>이곳으로 끌어다 놓으세요<br>(.hwpx)</strong>
+          <input type="file" id="file-input" accept=".hwpx">
+        </div>
+        <div class="file-status-line" id="file-status">아직 불러온 파일이 없습니다.</div>
+      </div>
     </div>
 
-    <div class="panel">
-      <div class="results-head">
-        <div class="tabs" id="tabs">
-          <button data-tab="word" class="active">뒤 단어 결과</button>
-          <button data-tab="line">줄 전체 결과</button>
-          <button data-tab="table">표 옆칸 결과</button>
+    <div class="editor-layout">
+      <div class="settings-panel">
+        <div class="field">
+          <div class="field-label">
+            <span>찾을 단어</span>
+            <span class="kw-count"><span id="kw-current-count">5</span> / 10</span>
+          </div>
+          <div class="keyword-list" id="keyword-list"></div>
+          <button type="button" class="btn-add-kw" id="add-keyword-btn">+ 단어 추가</button>
         </div>
-        <div style="display:flex; align-items:center; gap:12px;">
+
+        <div class="field">
+          <div class="field-label">통합 결과 형식</div>
+          <div class="opt-list">
+            <label>
+              <input type="radio" name="agg-format" value="wide" checked>
+              <span>우측에 칼럼 추가 (기본)
+                <span class="desc">한 행에 단어별 값을 오른쪽 칼럼으로 나란히 정리</span>
+              </span>
+            </label>
+            <label>
+              <input type="radio" name="agg-format" value="long">
+              <span>하나의 칼럼으로 정리
+                <span class="desc">검색어·값 한 쌍씩 아래로 쌓아서 정리</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-label">추출 방식</div>
+          <div class="opt-list">
+            <div class="opt-item">
+              <label>
+                <input type="checkbox" id="mode-word" checked>
+                <span>뒤에 오는 단어만 추출
+                  <span class="desc">특정 단어 바로 다음 어절을 가져옵니다.</span>
+                </span>
+              </label>
+              <div class="count-field">
+                가져올 단어 개수: <input type="number" id="count-word" min="1" max="20" value="1"> 개
+                <span class="desc">여러 개를 가져와도 한 칸(열)에 합쳐집니다.</span>
+              </div>
+            </div>
+
+            <div class="opt-item">
+              <label>
+                <input type="checkbox" id="mode-line" checked>
+                <span>해당 줄 전체 추출
+                  <span class="desc">단어가 포함된 줄을 통째로 가져옵니다.</span>
+                </span>
+              </label>
+              <div class="count-field">
+                가져올 줄 수: <input type="number" id="count-line" min="1" max="20" value="1"> 줄
+                <span class="desc">일치한 줄부터 아래로 이어지는 줄들을 한 칸에 합쳐서 가져옵니다.</span>
+              </div>
+            </div>
+
+            <div class="opt-item">
+              <label>
+                <input type="checkbox" id="mode-table">
+                <span>표에서 옆 칸 값 추출
+                  <span class="desc">표 안 단어 옆 칸 값을 가져옵니다.</span>
+                </span>
+              </label>
+              <div class="count-field">
+                가져올 칸 수: <input type="number" id="count-table" min="1" max="20" value="1"> 칸
+                <span class="desc">오른쪽으로 여러 칸을 가져와도 한 칸(열)에 합쳐집니다.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button class="run-btn" id="run-btn">추출하기</button>
+        <div class="status" id="status"></div>
+      </div>
+
+      <div class="preview-panel">
+        <div class="preview-head">
+          <h3 class="preview-title">👁️ 추출 결과 미리보기</h3>
+          <div class="tabs" id="tabs">
+            <button data-tab="word" class="active">뒤 단어</button>
+            <button data-tab="line">줄 전체</button>
+            <button data-tab="table">표 옆칸</button>
+            <button data-tab="agg">통합 결과</button>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
           <span class="count" id="result-count"></span>
-          <button class="ghost" id="download-btn" disabled>엑셀로 다운로드</button>
+          <button class="btn-download" id="download-btn" disabled>⬇️ 엑셀로 다운로드</button>
         </div>
-      </div>
 
-      <div id="word-view">
-        <div class="empty" id="word-empty">왼쪽에 텍스트와 단어를 입력한 뒤 추출하기를 눌러주세요.</div>
-        <div class="table-wrap" id="word-table-wrap" style="display:none;">
-          <table>
-            <thead>
-              <tr><th class="col-narrow">번호</th><th class="col-narrow">줄 번호</th><th>찾은 단어</th><th>바로 다음 단어</th></tr>
-            </thead>
-            <tbody id="word-tbody"></tbody>
-          </table>
-        </div>
-      </div>
+        <div class="preview-box">
+          <div id="word-view">
+            <div class="empty" id="word-empty">왼쪽에서 단어를 입력한 뒤 추출하기를 눌러주세요.</div>
+            <div class="table-wrap" id="word-table-wrap" style="display:none;">
+              <table>
+                <thead><tr><th class="col-narrow">번호</th><th class="col-narrow">줄 번호</th><th>검색어</th><th>찾은 단어</th><th>바로 다음 단어</th></tr></thead>
+                <tbody id="word-tbody"></tbody>
+              </table>
+            </div>
+          </div>
 
-      <div id="line-view" style="display:none;">
-        <div class="empty" id="line-empty">왼쪽에 텍스트와 단어를 입력한 뒤 추출하기를 눌러주세요.</div>
-        <div class="table-wrap" id="line-table-wrap" style="display:none;">
-          <table>
-            <thead>
-              <tr><th class="col-narrow">번호</th><th class="col-narrow">줄 번호</th><th class="col-narrow">일치 횟수</th><th>해당 줄 전체</th></tr>
-            </thead>
-            <tbody id="line-tbody"></tbody>
-          </table>
-        </div>
-      </div>
+          <div id="line-view" style="display:none;">
+            <div class="empty" id="line-empty">왼쪽에서 단어를 입력한 뒤 추출하기를 눌러주세요.</div>
+            <div class="table-wrap" id="line-table-wrap" style="display:none;">
+              <table>
+                <thead><tr><th class="col-narrow">번호</th><th class="col-narrow">줄 번호</th><th>검색어</th><th class="col-narrow">일치 횟수</th><th>해당 줄 전체</th></tr></thead>
+                <tbody id="line-tbody"></tbody>
+              </table>
+            </div>
+          </div>
 
-      <div id="table-view" style="display:none;">
-        <div class="empty" id="table-empty">왼쪽에 텍스트와 단어를 입력한 뒤 추출하기를 눌러주세요.</div>
-        <div class="table-wrap" id="table-table-wrap" style="display:none;">
-          <table>
-            <thead>
-              <tr><th class="col-narrow">번호</th><th class="col-narrow">표 번호</th><th class="col-narrow">행 번호</th><th>찾은 칸</th><th>옆 칸 값</th></tr>
-            </thead>
-            <tbody id="table-tbody"></tbody>
-          </table>
+          <div id="table-view" style="display:none;">
+            <div class="empty" id="table-empty">왼쪽에서 단어를 입력한 뒤 추출하기를 눌러주세요.</div>
+            <div class="table-wrap" id="table-table-wrap" style="display:none;">
+              <table>
+                <thead><tr><th class="col-narrow">번호</th><th class="col-narrow">표 번호</th><th class="col-narrow">행 번호</th><th>검색어</th><th>찾은 칸</th><th>옆 칸 값</th></tr></thead>
+                <tbody id="table-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="agg-view" style="display:none;">
+            <div class="empty" id="agg-empty">왼쪽에서 단어를 입력한 뒤 추출하기를 눌러주세요.</div>
+            <div class="table-wrap" id="agg-table-wrap" style="display:none;"></div>
+          </div>
         </div>
       </div>
     </div>
+
   </div>
 </div>
 
 <script>
 (function(){
-  const textInput = document.getElementById('text-input');
+  let extractedText = '';
   const fileInput = document.getElementById('file-input');
-  const keywordInput = document.getElementById('keyword-input');
+  const dropZone = document.getElementById('drop-zone');
+  const fileStatus = document.getElementById('file-status');
+  const resetBtn = document.getElementById('reset-btn');
+
+  const keywordList = document.getElementById('keyword-list');
+  const addKeywordBtn = document.getElementById('add-keyword-btn');
+  const kwCurrentCount = document.getElementById('kw-current-count');
+  const MAX_KEYWORDS = 10;
+  const DEFAULT_KEYWORDS = 5;
+
   const modeWord = document.getElementById('mode-word');
   const modeLine = document.getElementById('mode-line');
   const modeTable = document.getElementById('mode-table');
+  const countWordInput = document.getElementById('count-word');
+  const countLineInput = document.getElementById('count-line');
+  const countTableInput = document.getElementById('count-table');
+
+  function getCount(inputEl){
+    const n = parseInt(inputEl.value, 10);
+    if (!Number.isFinite(n) || n < 1) return 1;
+    return Math.min(n, 20);
+  }
   const runBtn = document.getElementById('run-btn');
   const downloadBtn = document.getElementById('download-btn');
   const statusEl = document.getElementById('status');
@@ -355,12 +386,15 @@
   const wordView = document.getElementById('word-view');
   const lineView = document.getElementById('line-view');
   const tableView = document.getElementById('table-view');
+  const aggView = document.getElementById('agg-view');
   const wordEmpty = document.getElementById('word-empty');
   const lineEmpty = document.getElementById('line-empty');
   const tableEmpty = document.getElementById('table-empty');
+  const aggEmpty = document.getElementById('agg-empty');
   const wordTableWrap = document.getElementById('word-table-wrap');
   const lineTableWrap = document.getElementById('line-table-wrap');
   const tableTableWrap = document.getElementById('table-table-wrap');
+  const aggTableWrap = document.getElementById('agg-table-wrap');
   const wordTbody = document.getElementById('word-tbody');
   const lineTbody = document.getElementById('line-tbody');
   const tableTbody = document.getElementById('table-tbody');
@@ -368,77 +402,147 @@
   let wordResults = [];
   let lineResults = [];
   let tableResults = [];
-  let hwpxTables = null; // .hwpx 업로드 시에만 채워지는 표 구조 [{rows:[[cell,...],...]}, ...]
+  let aggRows = [];
+  let aggSource = null;
+  let aggFormat = 'wide';
+  let lastKeywords = [];
+  let hwpxTables = null;
   let activeTab = 'word';
 
-  const fileStatus = document.getElementById('file-status');
+  /* ---------- 단어 입력 목록 (기본 5개, 최대 10개) ---------- */
+  function makeKeywordRow(){
+    const row = document.createElement('div');
+    row.className = 'keyword-row';
+    row.innerHTML = `
+      <input type="text" class="keyword-input" placeholder="예: 이름">
+      <button type="button" class="remove-kw" title="삭제">×</button>
+    `;
+    row.querySelector('.remove-kw').addEventListener('click', () => {
+      if (keywordList.children.length > 1) { row.remove(); updateKeywordCount(); }
+    });
+    return row;
+  }
 
-  fileInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  function updateKeywordCount(){
+    const n = keywordList.children.length;
+    kwCurrentCount.textContent = n;
+    addKeywordBtn.disabled = n >= MAX_KEYWORDS;
+  }
+
+  for (let i = 0; i < DEFAULT_KEYWORDS; i++) keywordList.appendChild(makeKeywordRow());
+  updateKeywordCount();
+
+  addKeywordBtn.addEventListener('click', () => {
+    if (keywordList.children.length >= MAX_KEYWORDS) return;
+    const row = makeKeywordRow();
+    keywordList.appendChild(row);
+    updateKeywordCount();
+    row.querySelector('input').focus();
+  });
+
+  function getKeywords(){
+    const seen = new Set();
+    const result = [];
+    keywordList.querySelectorAll('.keyword-input').forEach(inp => {
+      const v = inp.value.trim();
+      if (v && !seen.has(v)) { seen.add(v); result.push(v); }
+    });
+    return result;
+  }
+
+  /* ---------- 통합 결과 형식 토글 ---------- */
+  document.querySelectorAll('input[name="agg-format"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      aggFormat = document.querySelector('input[name="agg-format"]:checked').value;
+      renderAggTable(lastKeywords);
+      if (activeTab === 'agg') updateCount();
+    });
+  });
+
+  /* ---------- 파일 업로드 / 드래그앤드롭 (.hwpx 전용) ---------- */
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('highlight'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('highlight'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('highlight');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+  });
+
+  async function handleFile(file){
     statusEl.textContent = '';
-    const isHwpx = /\.hwpx$/i.test(file.name);
 
-    if (isHwpx) {
-      fileStatus.textContent = 'HWPX 파일에서 본문과 표를 추출하는 중...';
-      try {
-        const result = await extractHwpxText(file);
-        textInput.value = result.text;
-        hwpxTables = result.tables;
-        const tableCount = result.tables.length;
-        fileStatus.textContent = `"${file.name}" 에서 본문을 불러왔습니다. (문단 단위 줄, 표 ${tableCount}개 인식됨)`;
-      } catch (err) {
-        fileStatus.textContent = '';
-        hwpxTables = null;
-        statusEl.textContent = 'HWPX 파일을 읽는 중 오류가 발생했습니다: ' + err.message;
-      }
+    if (!/\.hwpx$/i.test(file.name)) {
+      fileStatus.textContent = '.hwpx 파일만 업로드할 수 있습니다.';
       return;
     }
 
-    hwpxTables = null;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      textInput.value = ev.target.result;
-      fileStatus.textContent = `"${file.name}" 을(를) 불러왔습니다. (일반 텍스트에는 표 구조가 없어 "표에서 옆 칸 값 추출"은 사용할 수 없습니다)`;
-    };
-    reader.onerror = () => { statusEl.textContent = '파일을 읽는 중 오류가 발생했습니다.'; };
-    reader.readAsText(file, 'UTF-8');
-  });
-
-  // 사용자가 텍스트를 직접 수정하면 원본 표 구조와 더 이상 일치하지 않으므로 표 데이터를 무효화한다.
-  textInput.addEventListener('input', () => {
-    if (hwpxTables) {
+    fileStatus.textContent = `"${file.name}" 에서 본문과 표를 추출하는 중...`;
+    try {
+      const result = await extractHwpxText(file);
+      extractedText = result.text;
+      hwpxTables = result.tables;
+      fileStatus.textContent = `"${file.name}" 불러옴 (표 ${result.tables.length}개 인식됨)`;
+    } catch (err) {
       hwpxTables = null;
-      fileStatus.textContent = '텍스트가 수정되어 표 구조 정보가 초기화되었습니다.';
+      fileStatus.textContent = 'HWPX 파일을 읽는 중 오류: ' + err.message;
     }
+  }
+
+  /* ---------- 초기화 ---------- */
+  resetBtn.addEventListener('click', () => {
+    extractedText = '';
+    fileInput.value = '';
+    hwpxTables = null;
+    fileStatus.textContent = '아직 불러온 파일이 없습니다.';
+
+    keywordList.innerHTML = '';
+    for (let i = 0; i < DEFAULT_KEYWORDS; i++) keywordList.appendChild(makeKeywordRow());
+    updateKeywordCount();
+
+    modeWord.checked = true;
+    modeLine.checked = true;
+    modeTable.checked = false;
+    countWordInput.value = 1;
+    countLineInput.value = 1;
+    countTableInput.value = 1;
+    document.querySelector('input[name="agg-format"][value="wide"]').checked = true;
+    aggFormat = 'wide';
+
+    wordResults = []; lineResults = []; tableResults = []; aggRows = []; aggSource = null; lastKeywords = [];
+    renderWordTable(); renderLineTable(); renderTableTable(); renderAggTable([]);
+    updateCount();
+    downloadBtn.disabled = true;
+    statusEl.textContent = '';
   });
 
-  // 특정 태그명을 가진 "가장 가까운" 조상 요소를 찾는다 (표 중첩 구조에서 소속을 정확히 판별하기 위함)
+  /* ---------- HWPX 파싱 ---------- */
   function closestByTag(node, tagName){
     let cur = node.parentNode;
     while (cur && cur.tagName !== tagName) cur = cur.parentNode;
     return cur;
   }
 
-  // 표(hp:tbl) 하나를 행/열 구조의 2차원 배열(문자열)로 변환한다.
-  // 중첩된 표(셀 안에 또 다른 표)가 있을 경우, 바깥 표의 행/셀 목록에는 포함시키지 않는다.
   function parseTable(tblNode){
     const rows = [];
     const trNodes = tblNode.getElementsByTagName('hp:tr');
     for (let ri = 0; ri < trNodes.length; ri++) {
       const tr = trNodes[ri];
-      if (closestByTag(tr, 'hp:tbl') !== tblNode) continue; // 중첩 표의 행은 제외
+      if (closestByTag(tr, 'hp:tbl') !== tblNode) continue;
 
       const tcNodes = tr.getElementsByTagName('hp:tc');
       const cells = [];
       for (let ci = 0; ci < tcNodes.length; ci++) {
         const tc = tcNodes[ci];
-        if (closestByTag(tc, 'hp:tr') !== tr) continue; // 중첩 표의 셀은 제외
+        if (closestByTag(tc, 'hp:tr') !== tr) continue;
 
         const tNodes = tc.getElementsByTagName('hp:t');
         let cellText = '';
         for (let k = 0; k < tNodes.length; k++) {
-          if (closestByTag(tNodes[k], 'hp:tc') !== tc) continue; // 중첩 표 안의 텍스트는 제외
+          if (closestByTag(tNodes[k], 'hp:tc') !== tc) continue;
           cellText += tNodes[k].textContent;
         }
         cells.push(cellText.trim());
@@ -472,9 +576,6 @@
         throw new Error('본문 XML을 해석할 수 없습니다.');
       }
 
-      // hp:t(텍스트 조각)를 문서 순서대로 순회하면서, 각 조각이 속한 "가장 가까운" hp:p(문단)에 묶는다.
-      // 표 셀 안의 문단은 바깥 문단 안에 중첩되어 있으므로, 가장 가까운 문단을 찾아야
-      // 셀 안 텍스트가 바깥 문단과 섞이지 않고 별도의 줄로 분리된다.
       const tNodes = doc.getElementsByTagName('hp:t');
       const paraMap = new Map();
       for (let i = 0; i < tNodes.length; i++) {
@@ -488,11 +589,8 @@
         lines.push(parts.join(''));
       }
 
-      // 표 구조 파싱 (행/셀 단위)
       const tblNodes = doc.getElementsByTagName('hp:tbl');
       for (let ti = 0; ti < tblNodes.length; ti++) {
-        // 중첩 표(셀 안의 표)는 최상위 표 목록에 별도로 추가하지 않고, 자신을 감싸는 표의 파싱에서 제외되었으므로
-        // 여기서는 독립된 표로서 그대로 추가한다 (중첩 표 자체도 검색 대상이 되도록).
         const rows = parseTable(tblNodes[ti]);
         if (rows.length > 0) tables.push(rows);
       }
@@ -501,6 +599,7 @@
     return { text: lines.join('\n'), tables };
   }
 
+  /* ---------- 탭 전환 ---------- */
   tabs.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-tab]');
     if (!btn) return;
@@ -509,11 +608,12 @@
     wordView.style.display = activeTab === 'word' ? '' : 'none';
     lineView.style.display = activeTab === 'line' ? '' : 'none';
     tableView.style.display = activeTab === 'table' ? '' : 'none';
+    aggView.style.display = activeTab === 'agg' ? '' : 'none';
     updateCount();
   });
 
   function escapeHtml(s){
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
   function highlight(text, keyword){
@@ -527,17 +627,19 @@
     let n = 0;
     if (activeTab === 'word') n = wordResults.length;
     else if (activeTab === 'line') n = lineResults.length;
-    else n = tableResults.length;
+    else if (activeTab === 'table') n = tableResults.length;
+    else n = aggRows.length;
     resultCount.textContent = n ? `${n}건 발견` : '';
   }
 
+  /* ---------- 추출 실행 ---------- */
   runBtn.addEventListener('click', () => {
-    const text = textInput.value;
-    const keyword = keywordInput.value.trim();
+    const text = extractedText;
+    const keywords = getKeywords();
     statusEl.textContent = '';
 
-    if (!text.trim()) { statusEl.textContent = '원본 텍스트를 입력해주세요.'; return; }
-    if (!keyword) { statusEl.textContent = '찾을 특정 단어를 입력해주세요.'; return; }
+    if (!text.trim()) { statusEl.textContent = '.hwpx 파일을 먼저 업로드해주세요.'; return; }
+    if (keywords.length === 0) { statusEl.textContent = '찾을 단어를 한 개 이상 입력해주세요.'; return; }
     if (!modeWord.checked && !modeLine.checked && !modeTable.checked) { statusEl.textContent = '추출 방식을 하나 이상 선택해주세요.'; return; }
 
     const lines = text.split(/\r\n|\r|\n/);
@@ -545,41 +647,49 @@
     lineResults = [];
     tableResults = [];
 
+    const wordCount = getCount(countWordInput);
+    const lineCount = getCount(countLineInput);
+    const tableCount = getCount(countTableInput);
+
     lines.forEach((line, lineIdx) => {
       const lineNo = lineIdx + 1;
       const tokens = line.split(/\s+/).filter(t => t.length > 0);
 
-      if (modeWord.checked) {
-        for (let i = 0; i < tokens.length; i++) {
-          if (tokens[i] === keyword) {
-            const next = tokens[i + 1];
-            if (next !== undefined) {
-              wordResults.push({ lineNo, found: tokens[i], next });
+      keywords.forEach(keyword => {
+        if (modeWord.checked) {
+          for (let i = 0; i < tokens.length; i++) {
+            if (tokens[i] === keyword) {
+              const nextTokens = tokens.slice(i + 1, i + 1 + wordCount);
+              if (nextTokens.length > 0) {
+                wordResults.push({ lineNo, keyword, found: tokens[i], next: nextTokens.join(' ') });
+              }
             }
           }
         }
-      }
-
-      if (modeLine.checked) {
-        const matchCount = tokens.filter(t => t === keyword).length || (line.includes(keyword) ? (line.split(keyword).length - 1) : 0);
-        if (line.includes(keyword)) {
-          lineResults.push({ lineNo, matchCount, line });
+        if (modeLine.checked) {
+          const matchCount = tokens.filter(t => t === keyword).length || (line.includes(keyword) ? (line.split(keyword).length - 1) : 0);
+          if (line.includes(keyword)) {
+            const mergedLine = lines.slice(lineIdx, lineIdx + lineCount).join('\n');
+            lineResults.push({ lineNo, keyword, matchCount, line: mergedLine });
+          }
         }
-      }
+      });
     });
 
     if (modeTable.checked) {
       if (hwpxTables && hwpxTables.length > 0) {
         hwpxTables.forEach((rows, tIdx) => {
           rows.forEach((cells, rIdx) => {
-            for (let c = 0; c < cells.length; c++) {
-              if (cells[c].includes(keyword)) {
-                const next = cells[c + 1];
-                if (next !== undefined) {
-                  tableResults.push({ tableNo: tIdx + 1, rowNo: rIdx + 1, found: cells[c], next });
+            keywords.forEach(keyword => {
+              for (let c = 0; c < cells.length; c++) {
+                if (cells[c].includes(keyword)) {
+                  const nextCells = cells.slice(c + 1, c + 1 + tableCount);
+                  if (nextCells.length > 0) {
+                    tableResults.push({ tableNo: tIdx + 1, rowNo: rIdx + 1, keyword, found: cells[c], next: nextCells.join(' / ') });
+                  }
                 }
               }
-            }
+            });
           });
         });
       } else {
@@ -587,17 +697,62 @@
       }
     }
 
+    setAggSource();
+    lastKeywords = keywords;
+
     renderWordTable();
     renderLineTable();
     renderTableTable();
+    renderAggTable(keywords);
     updateCount();
     downloadBtn.disabled = (wordResults.length === 0 && lineResults.length === 0 && tableResults.length === 0);
 
     if (wordResults.length === 0 && lineResults.length === 0 && tableResults.length === 0 && !statusEl.textContent) {
-      statusEl.textContent = `"${keyword}"를 텍스트에서 찾지 못했습니다.`;
+      statusEl.textContent = '입력한 단어를 텍스트에서 찾지 못했습니다.';
     }
   });
 
+  function idLabelsFor(type){ return type === 'table' ? ['표 번호', '행 번호'] : ['줄 번호']; }
+  function idValuesFor(type, it){ return type === 'table' ? [it.tableNo, it.rowNo] : [it.lineNo]; }
+  function idKeyFor(type, it){ return type === 'table' ? (it.tableNo + '-' + it.rowNo) : String(it.lineNo); }
+
+  function setAggSource(){
+    if (modeTable.checked && hwpxTables && hwpxTables.length > 0 && tableResults.length > 0) {
+      aggSource = { type: 'table', items: tableResults };
+    } else if (modeWord.checked && wordResults.length > 0) {
+      aggSource = { type: 'word', items: wordResults };
+    } else {
+      aggSource = null;
+    }
+  }
+
+  function computeAggregate(keywords){
+    if (!aggSource) return null;
+    const idLabels = idLabelsFor(aggSource.type);
+
+    if (aggFormat === 'long') {
+      const headers = [...idLabels, '검색어', '값'];
+      const dataRows = aggSource.items.map(it => [...idValuesFor(aggSource.type, it), it.keyword, it.next]);
+      return { headers, dataRows };
+    }
+
+    const groups = new Map();
+    const order = [];
+    aggSource.items.forEach(it => {
+      const key = idKeyFor(aggSource.type, it);
+      if (!groups.has(key)) { groups.set(key, { id: idValuesFor(aggSource.type, it), values: {} }); order.push(key); }
+      const g = groups.get(key);
+      if (g.values[it.keyword] === undefined) g.values[it.keyword] = it.next;
+    });
+    const headers = [...idLabels, ...keywords];
+    const dataRows = order.map(key => {
+      const g = groups.get(key);
+      return [...g.id, ...keywords.map(kw => (g.values[kw] !== undefined ? g.values[kw] : ''))];
+    });
+    return { headers, dataRows };
+  }
+
+  /* ---------- 렌더링 ---------- */
   function renderWordTable(){
     if (!modeWord.checked || wordResults.length === 0) {
       wordEmpty.style.display = '';
@@ -608,12 +763,12 @@
     }
     wordEmpty.style.display = 'none';
     wordTableWrap.style.display = '';
-    const keyword = keywordInput.value.trim();
     wordTbody.innerHTML = wordResults.map((r, i) => `
       <tr>
         <td>${i + 1}</td>
         <td>${r.lineNo}</td>
-        <td>${highlight(r.found, keyword)}</td>
+        <td>${escapeHtml(r.keyword)}</td>
+        <td>${highlight(r.found, r.keyword)}</td>
         <td><strong>${escapeHtml(r.next)}</strong></td>
       </tr>
     `).join('');
@@ -629,13 +784,13 @@
     }
     lineEmpty.style.display = 'none';
     lineTableWrap.style.display = '';
-    const keyword = keywordInput.value.trim();
     lineTbody.innerHTML = lineResults.map((r, i) => `
       <tr>
         <td>${i + 1}</td>
         <td>${r.lineNo}</td>
+        <td>${escapeHtml(r.keyword)}</td>
         <td>${r.matchCount}</td>
-        <td>${highlight(r.line, keyword)}</td>
+        <td>${highlight(r.line, r.keyword)}</td>
       </tr>
     `).join('');
   }
@@ -644,64 +799,98 @@
     if (!modeTable.checked || tableResults.length === 0) {
       tableEmpty.style.display = '';
       tableTableWrap.style.display = 'none';
-      if (!modeTable.checked) {
-        tableEmpty.textContent = '"표에서 옆 칸 값 추출"이 선택되지 않았습니다.';
-      } else if (!hwpxTables) {
-        tableEmpty.textContent = '표 구조 정보가 없습니다. .hwpx 파일을 업로드해주세요.';
-      } else {
-        tableEmpty.textContent = '일치하는 결과가 없습니다.';
-      }
+      if (!modeTable.checked) tableEmpty.textContent = '"표에서 옆 칸 값 추출"이 선택되지 않았습니다.';
+      else if (!hwpxTables) tableEmpty.textContent = '표 구조 정보가 없습니다. .hwpx 파일을 업로드해주세요.';
+      else tableEmpty.textContent = '일치하는 결과가 없습니다.';
       tableTbody.innerHTML = '';
       return;
     }
     tableEmpty.style.display = 'none';
     tableTableWrap.style.display = '';
-    const keyword = keywordInput.value.trim();
     tableTbody.innerHTML = tableResults.map((r, i) => `
       <tr>
         <td>${i + 1}</td>
         <td>${r.tableNo}</td>
         <td>${r.rowNo}</td>
-        <td>${highlight(r.found, keyword)}</td>
+        <td>${escapeHtml(r.keyword)}</td>
+        <td>${highlight(r.found, r.keyword)}</td>
         <td><strong>${escapeHtml(r.next)}</strong></td>
       </tr>
     `).join('');
   }
 
+  function renderAggTable(keywords){
+    const agg = computeAggregate(keywords);
+
+    if (!agg || agg.dataRows.length === 0) {
+      aggRows = [];
+      aggEmpty.style.display = '';
+      aggTableWrap.style.display = 'none';
+      aggTableWrap.innerHTML = '';
+      if (aggSource) aggEmpty.textContent = '통합할 수 있는 일치 항목이 없습니다.';
+      else if (modeTable.checked || modeWord.checked) aggEmpty.textContent = '통합 결과는 "뒤에 오는 단어만 추출" 또는 "표에서 옆 칸 값 추출" 결과가 있어야 만들어집니다.';
+      else aggEmpty.textContent = '왼쪽에서 단어를 입력한 뒤 추출하기를 눌러주세요.';
+      return;
+    }
+
+    aggRows = agg.dataRows;
+    aggEmpty.style.display = 'none';
+    aggTableWrap.style.display = '';
+
+    const headHtml = ['번호', ...agg.headers].map(h => `<th>${escapeHtml(h)}</th>`).join('');
+    const bodyHtml = agg.dataRows.map((cells, i) => {
+      const tds = cells.map(v => `<td>${v === '' ? '' : `<strong>${escapeHtml(v)}</strong>`}</td>`).join('');
+      return `<tr><td>${i + 1}</td>${tds}</tr>`;
+    }).join('');
+
+    aggTableWrap.innerHTML = `<table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>`;
+  }
+
+  /* ---------- 엑셀 다운로드 ---------- */
   downloadBtn.addEventListener('click', () => {
     const wb = XLSX.utils.book_new();
     let added = false;
 
     if (wordResults.length > 0) {
-      const rows = [['번호', '줄 번호', '찾은 단어', '바로 다음 단어']];
-      wordResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.found, r.next]));
+      const rows = [['번호', '줄 번호', '검색어', '찾은 단어', '바로 다음 단어']];
+      wordResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, r.found, r.next]));
       const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws['!cols'] = [{wch:6},{wch:8},{wch:16},{wch:24}];
+      ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:16},{wch:24}];
       XLSX.utils.book_append_sheet(wb, ws, '뒤 단어 결과');
       added = true;
     }
 
     if (lineResults.length > 0) {
-      const rows = [['번호', '줄 번호', '일치 횟수', '해당 줄 전체']];
-      lineResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.matchCount, r.line]));
+      const rows = [['번호', '줄 번호', '검색어', '일치 횟수', '해당 줄 전체']];
+      lineResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, r.matchCount, r.line]));
       const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws['!cols'] = [{wch:6},{wch:8},{wch:10},{wch:70}];
+      ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:10},{wch:70}];
       XLSX.utils.book_append_sheet(wb, ws, '줄 전체 결과');
       added = true;
     }
 
     if (tableResults.length > 0) {
-      const rows = [['번호', '표 번호', '행 번호', '찾은 칸', '옆 칸 값']];
-      tableResults.forEach((r, i) => rows.push([i + 1, r.tableNo, r.rowNo, r.found, r.next]));
+      const rows = [['번호', '표 번호', '행 번호', '검색어', '찾은 칸', '옆 칸 값']];
+      tableResults.forEach((r, i) => rows.push([i + 1, r.tableNo, r.rowNo, r.keyword, r.found, r.next]));
       const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws['!cols'] = [{wch:6},{wch:8},{wch:8},{wch:20},{wch:24}];
+      ws['!cols'] = [{wch:6},{wch:8},{wch:8},{wch:14},{wch:20},{wch:24}];
       XLSX.utils.book_append_sheet(wb, ws, '표 옆칸 결과');
       added = true;
     }
 
+    const aggForExport = computeAggregate(lastKeywords);
+    if (aggForExport && aggForExport.dataRows.length > 0) {
+      const rows = [['번호', ...aggForExport.headers]];
+      aggForExport.dataRows.forEach((cells, i) => rows.push([i + 1, ...cells]));
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = [{wch:6}, ...aggForExport.headers.map(() => ({wch:18}))];
+      XLSX.utils.book_append_sheet(wb, ws, '통합 결과');
+      added = true;
+    }
+
     if (!added) return;
-    const keyword = keywordInput.value.trim() || 'result';
-    XLSX.writeFile(wb, `단어추출_${keyword}.xlsx`);
+    const label = lastKeywords.length > 0 ? lastKeywords[0] : 'result';
+    XLSX.writeFile(wb, `단어추출_${label}.xlsx`);
   });
 })();
 </script>
