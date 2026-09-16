@@ -4,15 +4,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>스마트 문서 정리기</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://tessdata.projectnaptha.com https://unpkg.com; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; form-action 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.sheetjs.com; worker-src 'self' blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://tessdata.projectnaptha.com https://unpkg.com; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; form-action 'self';">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- [보안 수정] xlsx 0.18.5(npm/cdnjs 배포판)에는 알려진 취약점(CVE-2023-30533 프로토타입 오염,
+     CVE-2024-22363 ReDoS)이 있고 npm/cdnjs에는 고쳐진 버전이 올라오지 않는다(SheetJS가 2023년부터
+     자체 CDN에서만 패치판을 배포). 그래서 SheetJS 자체 CDN의 패치된 0.20.3을 사용한다.
+     이 CDN은 SRI용 CORS 헤더를 제공하지 않아 integrity 속성은 적용하지 못한다. -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG" crossorigin="anonymous"></script>
+<!-- [보안 수정] pdf.js 3.11.174에는 CVE-2024-4367(폰트 글리프 처리 중 임의 스크립트 실행)이 있어
+     패치된 5.4.530으로 올린다. 4.x부터는 전역 스크립트(pdf.min.js) 배포가 중단되고 ES 모듈(.mjs)만
+     제공되어 모듈로 불러온 뒤 window.pdfjsLib에 연결한다. -->
+<script type="module">
+  import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.530/build/pdf.min.mjs';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.530/build/pdf.worker.min.mjs';
+  window.pdfjsLib = pdfjsLib;
+</script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
 
 <style>
@@ -474,9 +485,7 @@
     if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
   });
 
-  if (window.pdfjsLib) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  }
+  // pdf.js workerSrc는 위 <script type="module"> 블록에서 5.4.530 기준으로 이미 설정됨
 
   async function extractPdfText(file){
     const buf = await file.arrayBuffer();
