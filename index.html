@@ -115,6 +115,14 @@
   .kw-right { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
   .kw-modes { display: flex; gap: 6px; flex-wrap: wrap; width: 100%; }
   .kw-modes label { display: flex; align-items: center; gap: 3px; font-size: 0.7rem; font-weight: 600; color: #334155; white-space: nowrap; cursor: pointer; }
+  .kw-table-label { flex-basis: 100%; flex-wrap: wrap; white-space: normal !important; }
+  .kw-table-direction {
+    border: 1px solid #e2e8f0; border-radius: 5px; padding: 2px 3px; font-size: 0.68rem; font-family: inherit;
+    background: white; cursor: pointer;
+  }
+  .kw-table-stopword {
+    width: 46px; border: 1px solid #e2e8f0; border-radius: 5px; padding: 2px 4px; font-size: 0.68rem; font-family: inherit;
+  }
   .kw-count-input {
     width: 30px; border: 1px solid #e2e8f0; border-radius: 5px; padding: 2px 3px; font-size: 0.68rem; font-family: inherit;
     margin-left: 1px; cursor: text;
@@ -338,9 +346,16 @@
             <input type="number" class="kw-count-input kw-offset-nextline" min="1" max="20" value="${d.nextlineOffset || 1}">째
             <input type="number" class="kw-count-input kw-count-nextline" min="1" max="20" value="${d.nextlineCount || 1}">줄
           </label>
-          <label><input type="checkbox" class="kw-mode-table" ${d.table ? 'checked' : ''}> 표옆칸
+          <label class="kw-table-label"><input type="checkbox" class="kw-mode-table" ${d.table ? 'checked' : ''}> 표
+            <select class="kw-table-direction">
+              <option value="right" ${(d.tableDirection || 'right') === 'right' ? 'selected' : ''}>오른쪽칸</option>
+              <option value="left" ${d.tableDirection === 'left' ? 'selected' : ''}>왼쪽칸</option>
+              <option value="up" ${d.tableDirection === 'up' ? 'selected' : ''}>위칸</option>
+              <option value="down" ${d.tableDirection === 'down' ? 'selected' : ''}>아래칸</option>
+            </select>
             <input type="number" class="kw-count-input kw-offset-table" min="1" max="20" value="${d.tableOffset || 1}">째
             <input type="number" class="kw-count-input kw-count-table" min="1" max="20" value="${d.tableCount || 1}">칸
+            (<input type="text" class="kw-table-stopword" placeholder="단어">) 단어 앞까지
           </label>
         </div>
         <div class="kw-actions">
@@ -477,8 +492,10 @@
       wordCount: getCount(rowEl.querySelector('.kw-count-word')),
       nextlineOffset: getCount(rowEl.querySelector('.kw-offset-nextline')),
       nextlineCount: getCount(rowEl.querySelector('.kw-count-nextline')),
+      tableDirection: rowEl.querySelector('.kw-table-direction').value,
       tableOffset: getCount(rowEl.querySelector('.kw-offset-table')),
       tableCount: getCount(rowEl.querySelector('.kw-count-table')),
+      tableStopWord: rowEl.querySelector('.kw-table-stopword').value.trim(),
     };
   }
 
@@ -833,6 +850,40 @@
 
   /* ---------- 추출 실행 ---------- */
   // 한 행(하나의 키워드)에 대해서만 추출을 수행한다. 이 키워드의 기존 결과는 지우고 새로 채운다.
+  // 표 옆칸: 검색어가 있는 칸(rIdx행, c열)을 기준으로 지정한 방향(right/left/up/down)으로
+  // offset번째 칸부터 count개, 또는 stopWord가 있으면 그 단어가 나오기 전까지 값을 모은다.
+  // 결과는 항상 자연스러운 읽기 순서(왼→오, 위→아래)로 반환한다.
+  function collectDirectionalCells(rows, cells, rIdx, c, direction, offset, count, stopWord){
+    function cellAt(step){
+      if (direction === 'right') return cells[c + step];
+      if (direction === 'left') return cells[c - step];
+      if (direction === 'down') return (rows[rIdx + step] || [])[c];
+      if (direction === 'up') return (rows[rIdx - step] || [])[c];
+      return undefined;
+    }
+
+    const vals = [];
+    const stop = (stopWord || '').trim();
+    if (stop) {
+      const MAX_SAFETY = 50;
+      for (let k = 0; k < MAX_SAFETY; k++) {
+        const v = cellAt(offset + k);
+        if (v === undefined) break;
+        if (v.includes(stop)) break;
+        vals.push(v);
+      }
+    } else {
+      for (let k = 0; k < count; k++) {
+        const v = cellAt(offset + k);
+        if (v === undefined) break;
+        vals.push(v);
+      }
+    }
+
+    if (direction === 'left' || direction === 'up') vals.reverse();
+    return vals;
+  }
+
   function extractForKeywordRow(rowData){
     const keyword = rowData.keyword;
     wordResults = wordResults.filter(r => r.keyword !== keyword);
@@ -879,8 +930,7 @@
           rows.forEach((cells, rIdx) => {
             for (let c = 0; c < cells.length; c++) {
               if (cells[c].includes(keyword)) {
-                const start = c + rowData.tableOffset;
-                const nextCells = cells.slice(start, start + rowData.tableCount);
+                const nextCells = collectDirectionalCells(rows, cells, rIdx, c, rowData.tableDirection, rowData.tableOffset, rowData.tableCount, rowData.tableStopWord);
                 if (nextCells.length > 0) {
                   tableResults.push({ tableNo: tIdx + 1, rowNo: rIdx + 1, keyword, found: cells[c], next: nextCells.join(' / ') });
                 }
