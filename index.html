@@ -281,13 +281,7 @@
     <div class="preview-panel-full">
       <div class="preview-head">
         <h3 class="preview-title">👁️ 추출 결과 미리보기</h3>
-        <div class="tabs" id="tabs">
-          <button data-tab="word" class="active">뒤 단어</button>
-          <button data-tab="line">해당 줄</button>
-          <button data-tab="nextline">다음 줄</button>
-          <button data-tab="table">표 옆칸</button>
-          <button data-tab="agg">통합 결과</button>
-        </div>
+        <div class="tabs" id="tabs"></div>
         <button class="btn-download" id="download-btn" disabled>⬇️ 엑셀로 다운로드</button>
       </div>
       <div style="display:flex; align-items:center; justify-content:flex-end; margin-bottom:10px;">
@@ -295,45 +289,7 @@
       </div>
 
       <div class="preview-box">
-        <div id="word-view">
-          <div class="empty" id="word-empty">단어를 입력한 뒤 추출하기를 눌러주세요.</div>
-          <div class="table-wrap" id="word-table-wrap" style="display:none;">
-            <table>
-              <thead><tr><th class="col-narrow">번호</th><th class="col-narrow">줄 번호</th><th>검색어</th><th>찾은 단어</th><th>바로 다음 단어</th></tr></thead>
-              <tbody id="word-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div id="line-view" style="display:none;">
-          <div class="empty" id="line-empty">단어를 입력한 뒤 추출하기를 눌러주세요.</div>
-          <div class="table-wrap" id="line-table-wrap" style="display:none;">
-            <table>
-              <thead><tr><th class="col-narrow">번호</th><th class="col-narrow">줄 번호</th><th>검색어</th><th class="col-narrow">일치 횟수</th><th>해당 줄 전체</th></tr></thead>
-              <tbody id="line-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div id="nextline-view" style="display:none;">
-          <div class="empty" id="nextline-empty">단어를 입력한 뒤 추출하기를 눌러주세요.</div>
-          <div class="table-wrap" id="nextline-table-wrap" style="display:none;">
-            <table>
-              <thead><tr><th class="col-narrow">번호</th><th class="col-narrow">줄 번호</th><th>검색어</th><th class="col-narrow">일치 횟수</th><th>다음 줄 전체</th></tr></thead>
-              <tbody id="nextline-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div id="table-view" style="display:none;">
-          <div class="empty" id="table-empty">단어를 입력한 뒤 추출하기를 눌러주세요.</div>
-          <div class="table-wrap" id="table-table-wrap" style="display:none;">
-            <table>
-              <thead><tr><th class="col-narrow">번호</th><th class="col-narrow">표 번호</th><th class="col-narrow">행 번호</th><th>검색어</th><th>찾은 칸</th><th>옆 칸 값</th></tr></thead>
-              <tbody id="table-tbody"></tbody>
-            </table>
-          </div>
-        </div>
+        <div id="kw-preview-view"></div>
 
         <div id="agg-view" style="display:none;">
           <div class="empty" id="agg-empty">단어를 입력한 뒤 추출하기를 눌러주세요.</div>
@@ -405,27 +361,14 @@
       if (!rowData.keyword) { flashRunButton(runBtnEl, '단어를 입력하세요'); return; }
       if (!rowData.word && !rowData.line && !rowData.nextline && !rowData.table) { flashRunButton(runBtnEl, '방식을 선택하세요'); return; }
       extractForKeywordRow(rowData);
-      renderWordTable();
-      renderLineTable();
-      renderNextLineTable();
-      renderTableTable();
       updateDownloadEnabled();
       updateReflectButtonStates();
 
-      // 이 행에서 실제로 결과가 나온 추출 위치(모드)의 미리보기 탭으로 바로 전환해서 보여준다.
-      const kw = rowData.keyword;
-      const modeCounts = [
-        { tab: 'word', on: rowData.word, count: wordResults.filter(r => r.keyword === kw).length },
-        { tab: 'line', on: rowData.line, count: lineResults.filter(r => r.keyword === kw).length },
-        { tab: 'nextline', on: rowData.nextline, count: nextLineResults.filter(r => r.keyword === kw).length },
-        { tab: 'table', on: rowData.table, count: tableResults.filter(r => r.keyword === kw).length },
-      ];
-      const withResult = modeCounts.find(m => m.on && m.count > 0);
-      const chosen = withResult || modeCounts.find(m => m.on);
-      if (chosen) switchToTab(chosen.tab);
-      updateCount();
+      // 이 행(추출위치)의 탭으로 바로 전환해서 결과를 보여준다.
+      const posIdx = row.querySelector('.kw-index').textContent;
+      switchToTab('kw-' + posIdx);
 
-      const cnt = countResultsForKeyword(kw);
+      const cnt = countResultsForKeyword(rowData.keyword);
       flashRunButton(runBtnEl, cnt > 0 ? `${cnt}건 추출됨` : '결과 없음');
       document.querySelector('.preview-panel-full').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
@@ -469,6 +412,7 @@
       const idx = row.querySelector('.kw-index');
       if (idx) idx.textContent = i + 1;
     });
+    renderKeywordTabs();
   }
 
   function updateKeywordCount(){
@@ -476,10 +420,6 @@
     kwCurrentCount.textContent = n;
     addKeywordBtn.disabled = n >= MAX_KEYWORDS;
   }
-
-  for (let i = 0; i < DEFAULT_KEYWORDS; i++) keywordList.appendChild(makeKeywordRow());
-  updateKeywordCount();
-  renumberKeywordRows();
 
   addKeywordBtn.addEventListener('click', () => {
     const toAdd = Math.min(ADD_STEP, MAX_KEYWORDS - keywordList.children.length);
@@ -501,25 +441,10 @@
   const resultCount = document.getElementById('result-count');
 
   const tabs = document.getElementById('tabs');
-  const wordView = document.getElementById('word-view');
-  const lineView = document.getElementById('line-view');
-  const nextLineView = document.getElementById('nextline-view');
-  const tableView = document.getElementById('table-view');
+  const kwPreviewView = document.getElementById('kw-preview-view');
   const aggView = document.getElementById('agg-view');
-  const wordEmpty = document.getElementById('word-empty');
-  const lineEmpty = document.getElementById('line-empty');
-  const nextLineEmpty = document.getElementById('nextline-empty');
-  const tableEmpty = document.getElementById('table-empty');
   const aggEmpty = document.getElementById('agg-empty');
-  const wordTableWrap = document.getElementById('word-table-wrap');
-  const lineTableWrap = document.getElementById('line-table-wrap');
-  const nextLineTableWrap = document.getElementById('nextline-table-wrap');
-  const tableTableWrap = document.getElementById('table-table-wrap');
   const aggTableWrap = document.getElementById('agg-table-wrap');
-  const wordTbody = document.getElementById('word-tbody');
-  const lineTbody = document.getElementById('line-tbody');
-  const nextLineTbody = document.getElementById('nextline-tbody');
-  const tableTbody = document.getElementById('table-tbody');
 
   let wordResults = [];
   let lineResults = [];
@@ -532,8 +457,13 @@
   let lastModeFlags = { word: false, line: false, nextline: false, table: false };
   let hwpxTables = null;
   let currentFileType = null; // 'hwpx' | 'pdf' | 'image' | null
-  let activeTab = 'word';
+  let activeTab = 'kw-1';
   let committedColumns = []; // [{ keyword, items: [{idType, id, keyword, value}, ...] }] — "열에 반영"으로 확정된 단어들
+
+  for (let i = 0; i < DEFAULT_KEYWORDS; i++) keywordList.appendChild(makeKeywordRow());
+  updateKeywordCount();
+  renumberKeywordRows();
+  switchToTab('kw-1');
 
   // 한 행(DOM)에서 키워드, 선택된 추출 방식, 번째/개수 설정을 읽어온다.
   function getRowData(rowEl){
@@ -713,8 +643,8 @@
     committedColumns = [];
     renderCommittedChips();
     updateReflectButtonStates();
-    renderWordTable(); renderLineTable(); renderNextLineTable(); renderTableTable(); renderAggTable([]);
-    updateCount();
+    renderAggTable([]);
+    switchToTab('kw-1');
     downloadBtn.disabled = true;
     statusEl.textContent = '';
   });
@@ -799,16 +729,77 @@
     return { text: lines.join('\n'), tables };
   }
 
-  /* ---------- 탭 전환 ---------- */
+  /* ---------- 탭 전환 (단어 위치별 동적 탭) ---------- */
+  function renderKeywordTabs(){
+    const rows = [...keywordList.children];
+    // 현재 활성 탭이 가리키는 위치가 더 이상 없으면 1번으로 되돌린다.
+    if (activeTab.startsWith('kw-')) {
+      const idx = parseInt(activeTab.slice(3), 10);
+      if (idx > rows.length) activeTab = 'kw-1';
+    }
+    const kwTabsHtml = rows.map((row, i) => {
+      const idx = i + 1;
+      const tabId = 'kw-' + idx;
+      return `<button data-tab="${tabId}" class="${activeTab === tabId ? 'active' : ''}">추출위치${idx}</button>`;
+    }).join('');
+    const aggTabHtml = `<button data-tab="agg" class="${activeTab === 'agg' ? 'active' : ''}">통합 결과</button>`;
+    tabs.innerHTML = kwTabsHtml + aggTabHtml;
+  }
+
   function switchToTab(tabName){
     activeTab = tabName;
-    [...tabs.children].forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
-    wordView.style.display = activeTab === 'word' ? '' : 'none';
-    lineView.style.display = activeTab === 'line' ? '' : 'none';
-    nextLineView.style.display = activeTab === 'nextline' ? '' : 'none';
-    tableView.style.display = activeTab === 'table' ? '' : 'none';
-    aggView.style.display = activeTab === 'agg' ? '' : 'none';
+    renderKeywordTabs();
+    if (activeTab === 'agg') {
+      kwPreviewView.style.display = 'none';
+      aggView.style.display = '';
+    } else {
+      aggView.style.display = 'none';
+      kwPreviewView.style.display = '';
+      renderKeywordPreview(activeTab);
+    }
     updateCount();
+  }
+
+  // "추출위치N" 탭 하나의 내용: 그 위치(행)의 현재 단어에 대한 모든 방식의 결과를 한 표로 모아 보여준다.
+  function renderKeywordPreview(tabId){
+    const idx = parseInt(tabId.slice(3), 10);
+    const row = keywordList.children[idx - 1];
+    if (!row) { kwPreviewView.innerHTML = `<div class="empty">추출위치${idx}가 없습니다.</div>`; return; }
+
+    const keyword = row.querySelector('.keyword-input').value.trim();
+    if (!keyword) {
+      kwPreviewView.innerHTML = `<div class="empty">추출위치${idx}에 단어를 입력한 뒤 추출하기를 눌러주세요.</div>`;
+      return;
+    }
+
+    const rows = [];
+    wordResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '뒤 단어', loc: `${r.lineNo}줄`, value: r.next }));
+    lineResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '해당 줄', loc: `${r.lineNo}줄`, value: r.line }));
+    nextLineResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '다음 줄', loc: `${r.lineNo}줄`, value: r.nextLine }));
+    tableResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '표 옆칸', loc: `표${r.tableNo}-행${r.rowNo}`, value: r.next }));
+
+    if (rows.length === 0) {
+      kwPreviewView.innerHTML = `<div class="empty">"${escapeHtml(keyword)}"의 추출 결과가 없습니다. 이 위치의 "추출하기"를 눌러주세요.</div>`;
+      return;
+    }
+
+    const body = rows.map((r, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${escapeHtml(r.mode)}</td>
+        <td>${escapeHtml(r.loc)}</td>
+        <td><strong>${highlight(r.value, keyword)}</strong></td>
+      </tr>
+    `).join('');
+
+    kwPreviewView.innerHTML = `
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="col-narrow">번호</th><th>방식</th><th>위치</th><th>값</th></tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+    `;
   }
 
   tabs.addEventListener('click', (e) => {
@@ -830,11 +821,13 @@
 
   function updateCount(){
     let n = 0;
-    if (activeTab === 'word') n = wordResults.length;
-    else if (activeTab === 'line') n = lineResults.length;
-    else if (activeTab === 'nextline') n = nextLineResults.length;
-    else if (activeTab === 'table') n = tableResults.length;
-    else n = aggRows.length;
+    if (activeTab === 'agg') n = aggRows.length;
+    else {
+      const idx = parseInt(activeTab.slice(3), 10);
+      const row = keywordList.children[idx - 1];
+      const keyword = row ? row.querySelector('.keyword-input').value.trim() : '';
+      n = keyword ? countResultsForKeyword(keyword) : 0;
+    }
     resultCount.textContent = n ? `${n}건 발견` : '';
   }
 
@@ -927,10 +920,6 @@
     setAggSource();
     lastKeywords = kwRows.map(r => r.keyword);
 
-    renderWordTable();
-    renderLineTable();
-    renderNextLineTable();
-    renderTableTable();
     renderAggTable(lastKeywords);
     switchToTab('agg');
     updateDownloadEnabled();
@@ -1076,97 +1065,6 @@
   }
 
   /* ---------- 렌더링 ---------- */
-  function renderWordTable(){
-    if (wordResults.length === 0) {
-      wordEmpty.style.display = '';
-      wordTableWrap.style.display = 'none';
-      wordEmpty.textContent = lastModeFlags.word ? '일치하는 결과가 없습니다.' : '"뒤 단어" 방식을 선택한 단어가 없습니다.';
-      wordTbody.innerHTML = '';
-      return;
-    }
-    wordEmpty.style.display = 'none';
-    wordTableWrap.style.display = '';
-    wordTbody.innerHTML = wordResults.map((r, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${r.lineNo}</td>
-        <td>${escapeHtml(r.keyword)}</td>
-        <td>${highlight(r.found, r.keyword)}</td>
-        <td><strong>${escapeHtml(r.next)}</strong></td>
-      </tr>
-    `).join('');
-  }
-
-  function renderLineTable(){
-    if (lineResults.length === 0) {
-      lineEmpty.style.display = '';
-      lineTableWrap.style.display = 'none';
-      lineEmpty.textContent = lastModeFlags.line ? '일치하는 결과가 없습니다.' : '"해당 줄" 방식을 선택한 단어가 없습니다.';
-      lineTbody.innerHTML = '';
-      return;
-    }
-    lineEmpty.style.display = 'none';
-    lineTableWrap.style.display = '';
-    lineTbody.innerHTML = lineResults.map((r, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${r.lineNo}</td>
-        <td>${escapeHtml(r.keyword)}</td>
-        <td>${r.matchCount}</td>
-        <td>${highlight(r.line, r.keyword)}</td>
-      </tr>
-    `).join('');
-  }
-
-  function renderNextLineTable(){
-    if (nextLineResults.length === 0) {
-      nextLineEmpty.style.display = '';
-      nextLineTableWrap.style.display = 'none';
-      nextLineEmpty.textContent = lastModeFlags.nextline ? '일치하는 결과가 없습니다.' : '"다음 줄" 방식을 선택한 단어가 없습니다.';
-      nextLineTbody.innerHTML = '';
-      return;
-    }
-    nextLineEmpty.style.display = 'none';
-    nextLineTableWrap.style.display = '';
-    nextLineTbody.innerHTML = nextLineResults.map((r, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${r.lineNo}</td>
-        <td>${escapeHtml(r.keyword)}</td>
-        <td>${r.matchCount}</td>
-        <td>${escapeHtml(r.nextLine)}</td>
-      </tr>
-    `).join('');
-  }
-
-  function renderTableTable(){
-    if (tableResults.length === 0) {
-      tableEmpty.style.display = '';
-      tableTableWrap.style.display = 'none';
-      if (!lastModeFlags.table) tableEmpty.textContent = '"표 옆칸" 방식을 선택한 단어가 없습니다.';
-      else if (!hwpxTables) {
-        tableEmpty.textContent = (currentFileType && currentFileType !== 'hwpx')
-          ? '표 옆칸 추출은 .hwpx 파일에서만 지원됩니다.'
-          : '표 구조 정보가 없습니다. .hwpx 파일을 업로드해주세요.';
-      }
-      else tableEmpty.textContent = '일치하는 결과가 없습니다.';
-      tableTbody.innerHTML = '';
-      return;
-    }
-    tableEmpty.style.display = 'none';
-    tableTableWrap.style.display = '';
-    tableTbody.innerHTML = tableResults.map((r, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${r.tableNo}</td>
-        <td>${r.rowNo}</td>
-        <td>${escapeHtml(r.keyword)}</td>
-        <td>${highlight(r.found, r.keyword)}</td>
-        <td><strong>${escapeHtml(r.next)}</strong></td>
-      </tr>
-    `).join('');
-  }
-
   function renderAggTable(keywords){
     const agg = computeAggregate(keywords);
 
