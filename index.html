@@ -103,35 +103,42 @@
 
   .keyword-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   @media (max-width: 700px) { .keyword-list { grid-template-columns: 1fr; } }
-  .keyword-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: white; flex-wrap: wrap; }
+  .keyword-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: white; }
   .kw-index {
     flex: none; width: 20px; height: 20px; border-radius: 50%; background: #eef1f3; color: #64748b;
-    font-size: 0.7rem; font-weight: 700; display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 6px;
   }
   .keyword-row input.keyword-input {
-    flex: 0 1 110px; min-width: 80px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 8px; font-size: 13px; font-family: inherit; background: white;
+    flex: 0 0 72px; min-width: 60px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 6px; font-size: 13px; font-family: inherit; background: white;
   }
   .keyword-row input.keyword-input:focus { outline: 2px solid #2563eb; outline-offset: 1px; }
-  .kw-modes { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
-  .kw-modes label { display: flex; align-items: center; gap: 4px; font-size: 0.74rem; font-weight: 600; color: #334155; white-space: nowrap; cursor: pointer; }
+  .kw-right { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+  .kw-modes { display: flex; gap: 6px; flex-wrap: wrap; width: 100%; }
+  .kw-modes label { display: flex; align-items: center; gap: 3px; font-size: 0.7rem; font-weight: 600; color: #334155; white-space: nowrap; cursor: pointer; }
   .kw-count-input {
-    width: 36px; border: 1px solid #e2e8f0; border-radius: 6px; padding: 2px 4px; font-size: 0.72rem; font-family: inherit;
+    width: 30px; border: 1px solid #e2e8f0; border-radius: 5px; padding: 2px 3px; font-size: 0.68rem; font-family: inherit;
     margin-left: 1px; cursor: text;
   }
+  .kw-actions { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; width: 100%; }
+  .row-run-btn {
+    flex: none; border: none; background: #10b981; color: white; border-radius: 6px;
+    padding: 5px 9px; font-size: 0.7rem; font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+  .row-run-btn:hover { background: #0d9c6f; }
   .keyword-row .remove-kw {
-    flex: none; width: 24px; height: 24px; border: 1px solid #e2e8f0; background: white; border-radius: 6px;
-    color: #94a3b8; cursor: pointer; font-size: 13px; line-height: 1;
+    flex: none; width: 22px; height: 22px; border: 1px solid #e2e8f0; background: white; border-radius: 6px;
+    color: #94a3b8; cursor: pointer; font-size: 12px; line-height: 1;
   }
   .keyword-row .remove-kw:hover { background: #fee2e2; border-color: #ef4444; color: #ef4444; }
   .reflect-kw {
     flex: none; border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; border-radius: 6px;
-    padding: 4px 8px; font-size: 0.7rem; font-weight: 700; cursor: pointer; white-space: nowrap;
+    padding: 4px 7px; font-size: 0.68rem; font-weight: 700; cursor: pointer; white-space: nowrap;
   }
   .reflect-kw:hover { background: #dbeafe; }
   .reflect-kw.active { background: #dcfce7; border-color: #86efac; color: #166534; }
   .kw-exclude-input {
-    flex: 0 1 110px; min-width: 70px; border: 1px solid #fecaca; border-radius: 6px; padding: 4px 7px;
-    font-size: 0.72rem; font-family: inherit; background: #fff5f5; color: #7f1d1d;
+    flex: 1 1 60px; min-width: 50px; border: 1px solid #fecaca; border-radius: 6px; padding: 4px 6px;
+    font-size: 0.68rem; font-family: inherit; background: #fff5f5; color: #7f1d1d;
   }
   .kw-exclude-input::placeholder { color: #b91c1c; opacity: 0.6; }
   .kw-exclude-input:focus { outline: 2px solid #ef4444; outline-offset: 1px; }
@@ -266,7 +273,7 @@
           <label class="opt"><input type="radio" name="agg-format" value="wide" checked> 우측에 칼럼 추가 (기본)</label>
           <label class="opt"><input type="radio" name="agg-format" value="long"> 하나의 칼럼으로 정리</label>
         </div>
-        <button class="run-btn" id="run-btn">추출하기</button>
+        <button class="run-btn" id="run-btn" title="각 단어에서 추출한 결과를 모아 통합 결과를 만듭니다">추출값 병합하기</button>
       </div>
       <div class="status" id="status"></div>
     </div>
@@ -364,27 +371,65 @@
     row.innerHTML = `
       <span class="kw-index">1</span>
       <input type="text" class="keyword-input" placeholder="예: 이름">
-      <div class="kw-modes">
-        <label><input type="checkbox" class="kw-mode-word" ${d.word ? 'checked' : ''}> 뒤 단어
-          <input type="number" class="kw-count-input kw-offset-word" min="1" max="20" value="${d.wordOffset || 1}">번째 단어
-          <input type="number" class="kw-count-input kw-count-word" min="1" max="20" value="${d.wordCount || 1}"> 개
-        </label>
-        <label><input type="checkbox" class="kw-mode-line" ${d.line ? 'checked' : ''}> 해당 줄</label>
-        <label><input type="checkbox" class="kw-mode-nextline" ${d.nextline ? 'checked' : ''}> 다음 줄
-          <input type="number" class="kw-count-input kw-offset-nextline" min="1" max="20" value="${d.nextlineOffset || 1}">번째 줄
-          <input type="number" class="kw-count-input kw-count-nextline" min="1" max="20" value="${d.nextlineCount || 1}"> 줄
-        </label>
-        <label><input type="checkbox" class="kw-mode-table" ${d.table ? 'checked' : ''}> 표 옆칸
-          <input type="number" class="kw-count-input kw-offset-table" min="1" max="20" value="${d.tableOffset || 1}">번째 칸
-          <input type="number" class="kw-count-input kw-count-table" min="1" max="20" value="${d.tableCount || 1}"> 칸
-        </label>
+      <div class="kw-right">
+        <div class="kw-modes">
+          <label><input type="checkbox" class="kw-mode-word" ${d.word ? 'checked' : ''}> 뒤단어
+            <input type="number" class="kw-count-input kw-offset-word" min="1" max="20" value="${d.wordOffset || 1}">째
+            <input type="number" class="kw-count-input kw-count-word" min="1" max="20" value="${d.wordCount || 1}">개
+          </label>
+          <label><input type="checkbox" class="kw-mode-line" ${d.line ? 'checked' : ''}> 해당줄</label>
+          <label><input type="checkbox" class="kw-mode-nextline" ${d.nextline ? 'checked' : ''}> 다음줄
+            <input type="number" class="kw-count-input kw-offset-nextline" min="1" max="20" value="${d.nextlineOffset || 1}">째
+            <input type="number" class="kw-count-input kw-count-nextline" min="1" max="20" value="${d.nextlineCount || 1}">줄
+          </label>
+          <label><input type="checkbox" class="kw-mode-table" ${d.table ? 'checked' : ''}> 표옆칸
+            <input type="number" class="kw-count-input kw-offset-table" min="1" max="20" value="${d.tableOffset || 1}">째
+            <input type="number" class="kw-count-input kw-count-table" min="1" max="20" value="${d.tableCount || 1}">칸
+          </label>
+        </div>
+        <div class="kw-actions">
+          <button type="button" class="row-run-btn" title="이 단어만 지금 바로 추출합니다">추출하기</button>
+          <input type="text" class="kw-exclude-input" placeholder="제외할 값" title="여기 입력한 값을 포함하는 추출 결과는 반영에서 제외합니다 (쉼표로 여러 개 구분)">
+          <button type="button" class="reflect-kw" title="이 단어의 추출 결과를 엑셀 열로 반영">✔ 반영</button>
+          <button type="button" class="remove-kw" title="삭제">×</button>
+        </div>
       </div>
-      <input type="text" class="kw-exclude-input" placeholder="제외할 값(쉼표구분)" title="여기 입력한 값을 포함하는 추출 결과는 반영에서 제외합니다">
-      <button type="button" class="reflect-kw" title="이 단어의 추출 결과를 엑셀 열로 반영">✔ 열에 반영</button>
-      <button type="button" class="remove-kw" title="삭제">×</button>
     `;
     const kwInput = row.querySelector('.keyword-input');
     kwInput.addEventListener('input', updateReflectButtonStates);
+
+    row.querySelector('.row-run-btn').addEventListener('click', () => {
+      const runBtnEl = row.querySelector('.row-run-btn');
+      const rowData = getRowData(row);
+      if (!extractedText.trim()) { flashRunButton(runBtnEl, '파일 먼저 업로드'); return; }
+      if (!rowData.keyword) { flashRunButton(runBtnEl, '단어를 입력하세요'); return; }
+      if (!rowData.word && !rowData.line && !rowData.nextline && !rowData.table) { flashRunButton(runBtnEl, '방식을 선택하세요'); return; }
+      extractForKeywordRow(rowData);
+      renderWordTable();
+      renderLineTable();
+      renderNextLineTable();
+      renderTableTable();
+      updateDownloadEnabled();
+      updateReflectButtonStates();
+
+      // 이 행에서 실제로 결과가 나온 추출 위치(모드)의 미리보기 탭으로 바로 전환해서 보여준다.
+      const kw = rowData.keyword;
+      const modeCounts = [
+        { tab: 'word', on: rowData.word, count: wordResults.filter(r => r.keyword === kw).length },
+        { tab: 'line', on: rowData.line, count: lineResults.filter(r => r.keyword === kw).length },
+        { tab: 'nextline', on: rowData.nextline, count: nextLineResults.filter(r => r.keyword === kw).length },
+        { tab: 'table', on: rowData.table, count: tableResults.filter(r => r.keyword === kw).length },
+      ];
+      const withResult = modeCounts.find(m => m.on && m.count > 0);
+      const chosen = withResult || modeCounts.find(m => m.on);
+      if (chosen) switchToTab(chosen.tab);
+      updateCount();
+
+      const cnt = countResultsForKeyword(kw);
+      flashRunButton(runBtnEl, cnt > 0 ? `${cnt}건 추출됨` : '결과 없음');
+      document.querySelector('.preview-panel-full').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+
     row.querySelector('.reflect-kw').addEventListener('click', () => {
       const kw = kwInput.value.trim();
       const reflectBtn = row.querySelector('.reflect-kw');
@@ -406,6 +451,11 @@
       if (keywordList.children.length > 1) { row.remove(); updateKeywordCount(); renumberKeywordRows(); }
     });
     return row;
+  }
+
+  function flashRunButton(btn, message){
+    btn.textContent = message;
+    setTimeout(() => { btn.textContent = '추출하기'; }, 1400);
   }
 
   function getCount(inputEl){
@@ -485,26 +535,32 @@
   let activeTab = 'word';
   let committedColumns = []; // [{ keyword, items: [{idType, id, keyword, value}, ...] }] — "열에 반영"으로 확정된 단어들
 
-  // 같은 단어를 중복 입력한 경우, 추출 방식 체크는 OR로 합쳐서 하나로 취급한다.
+  // 한 행(DOM)에서 키워드, 선택된 추출 방식, 번째/개수 설정을 읽어온다.
+  function getRowData(rowEl){
+    return {
+      keyword: rowEl.querySelector('.keyword-input').value.trim(),
+      word: rowEl.querySelector('.kw-mode-word').checked,
+      line: rowEl.querySelector('.kw-mode-line').checked,
+      nextline: rowEl.querySelector('.kw-mode-nextline').checked,
+      table: rowEl.querySelector('.kw-mode-table').checked,
+      wordOffset: getCount(rowEl.querySelector('.kw-offset-word')),
+      wordCount: getCount(rowEl.querySelector('.kw-count-word')),
+      nextlineOffset: getCount(rowEl.querySelector('.kw-offset-nextline')),
+      nextlineCount: getCount(rowEl.querySelector('.kw-count-nextline')),
+      tableOffset: getCount(rowEl.querySelector('.kw-offset-table')),
+      tableCount: getCount(rowEl.querySelector('.kw-count-table')),
+    };
+  }
+
+  // 같은 단어를 중복 입력한 경우, 추출 방식 체크는 OR로 합쳐서 하나로 취급한다. (병합 시 사용)
   function getKeywordRows(){
     const map = new Map();
     const order = [];
     keywordList.querySelectorAll('.keyword-row').forEach(rowEl => {
-      const kw = rowEl.querySelector('.keyword-input').value.trim();
-      if (!kw) return;
-      const flags = {
-        word: rowEl.querySelector('.kw-mode-word').checked,
-        line: rowEl.querySelector('.kw-mode-line').checked,
-        nextline: rowEl.querySelector('.kw-mode-nextline').checked,
-        table: rowEl.querySelector('.kw-mode-table').checked,
-        wordOffset: getCount(rowEl.querySelector('.kw-offset-word')),
-        wordCount: getCount(rowEl.querySelector('.kw-count-word')),
-        nextlineOffset: getCount(rowEl.querySelector('.kw-offset-nextline')),
-        nextlineCount: getCount(rowEl.querySelector('.kw-count-nextline')),
-        tableOffset: getCount(rowEl.querySelector('.kw-offset-table')),
-        tableCount: getCount(rowEl.querySelector('.kw-count-table')),
-      };
-      if (!map.has(kw)) { map.set(kw, { keyword: kw, ...flags }); order.push(kw); }
+      const flags = getRowData(rowEl);
+      if (!flags.keyword) return;
+      const kw = flags.keyword;
+      if (!map.has(kw)) { map.set(kw, flags); order.push(kw); }
       else {
         const existing = map.get(kw);
         existing.word = existing.word || flags.word;
@@ -744,17 +800,21 @@
   }
 
   /* ---------- 탭 전환 ---------- */
-  tabs.addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-tab]');
-    if (!btn) return;
-    activeTab = btn.dataset.tab;
-    [...tabs.children].forEach(b => b.classList.toggle('active', b === btn));
+  function switchToTab(tabName){
+    activeTab = tabName;
+    [...tabs.children].forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
     wordView.style.display = activeTab === 'word' ? '' : 'none';
     lineView.style.display = activeTab === 'line' ? '' : 'none';
     nextLineView.style.display = activeTab === 'nextline' ? '' : 'none';
     tableView.style.display = activeTab === 'table' ? '' : 'none';
     aggView.style.display = activeTab === 'agg' ? '' : 'none';
     updateCount();
+  }
+
+  tabs.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-tab]');
+    if (!btn) return;
+    switchToTab(btn.dataset.tab);
   });
 
   function escapeHtml(s){
@@ -779,75 +839,60 @@
   }
 
   /* ---------- 추출 실행 ---------- */
-  runBtn.addEventListener('click', () => {
-    const text = extractedText;
-    const kwRows = getKeywordRows();
-    statusEl.textContent = '';
+  // 한 행(하나의 키워드)에 대해서만 추출을 수행한다. 이 키워드의 기존 결과는 지우고 새로 채운다.
+  function extractForKeywordRow(rowData){
+    const keyword = rowData.keyword;
+    wordResults = wordResults.filter(r => r.keyword !== keyword);
+    lineResults = lineResults.filter(r => r.keyword !== keyword);
+    nextLineResults = nextLineResults.filter(r => r.keyword !== keyword);
+    tableResults = tableResults.filter(r => r.keyword !== keyword);
 
-    if (!text.trim()) { statusEl.textContent = '.hwpx 파일을 먼저 업로드해주세요.'; return; }
-    if (kwRows.length === 0) { statusEl.textContent = '찾을 단어를 한 개 이상 입력해주세요.'; return; }
-
-    const anySelected = kwRows.some(r => r.word || r.line || r.nextline || r.table);
-    if (!anySelected) { statusEl.textContent = '단어별로 추출 방식을 하나 이상 선택해주세요.'; return; }
-
-    const lines = text.split(/\r\n|\r|\n/);
-    wordResults = [];
-    lineResults = [];
-    nextLineResults = [];
-    tableResults = [];
+    const lines = extractedText.split(/\r\n|\r|\n/);
 
     lines.forEach((line, lineIdx) => {
       const lineNo = lineIdx + 1;
       const tokens = line.split(/\s+/).filter(t => t.length > 0);
 
-      kwRows.forEach(row => {
-        const keyword = row.keyword;
-
-        if (row.word) {
-          for (let i = 0; i < tokens.length; i++) {
-            if (tokens[i] === keyword) {
-              const start = i + row.wordOffset;
-              const nextTokens = tokens.slice(start, start + row.wordCount);
-              if (nextTokens.length > 0) {
-                wordResults.push({ lineNo, keyword, found: tokens[i], next: nextTokens.join(' ') });
-              }
+      if (rowData.word) {
+        for (let i = 0; i < tokens.length; i++) {
+          if (tokens[i] === keyword) {
+            const start = i + rowData.wordOffset;
+            const nextTokens = tokens.slice(start, start + rowData.wordCount);
+            if (nextTokens.length > 0) {
+              wordResults.push({ lineNo, keyword, found: tokens[i], next: nextTokens.join(' ') });
             }
           }
         }
+      }
 
-        if (row.line && line.includes(keyword)) {
-          const matchCount = tokens.filter(t => t === keyword).length || (line.split(keyword).length - 1);
-          lineResults.push({ lineNo, keyword, matchCount, line });
-        }
+      if (rowData.line && line.includes(keyword)) {
+        const matchCount = tokens.filter(t => t === keyword).length || (line.split(keyword).length - 1);
+        lineResults.push({ lineNo, keyword, matchCount, line });
+      }
 
-        if (row.nextline && line.includes(keyword)) {
-          const matchCount = tokens.filter(t => t === keyword).length || (line.split(keyword).length - 1);
-          const start = lineIdx + row.nextlineOffset;
-          const nextChunk = lines.slice(start, start + row.nextlineCount).join('\n');
-          if (nextChunk.length > 0) {
-            nextLineResults.push({ lineNo, keyword, matchCount, nextLine: nextChunk });
-          }
+      if (rowData.nextline && line.includes(keyword)) {
+        const matchCount = tokens.filter(t => t === keyword).length || (line.split(keyword).length - 1);
+        const start = lineIdx + rowData.nextlineOffset;
+        const nextChunk = lines.slice(start, start + rowData.nextlineCount).join('\n');
+        if (nextChunk.length > 0) {
+          nextLineResults.push({ lineNo, keyword, matchCount, nextLine: nextChunk });
         }
-      });
+      }
     });
 
-    const tableKeywords = kwRows.filter(r => r.table);
-    if (tableKeywords.length > 0) {
+    if (rowData.table) {
       if (hwpxTables && hwpxTables.length > 0) {
         hwpxTables.forEach((rows, tIdx) => {
           rows.forEach((cells, rIdx) => {
-            tableKeywords.forEach(row => {
-              const keyword = row.keyword;
-              for (let c = 0; c < cells.length; c++) {
-                if (cells[c].includes(keyword)) {
-                  const start = c + row.tableOffset;
-                  const nextCells = cells.slice(start, start + row.tableCount);
-                  if (nextCells.length > 0) {
-                    tableResults.push({ tableNo: tIdx + 1, rowNo: rIdx + 1, keyword, found: cells[c], next: nextCells.join(' / ') });
-                  }
+            for (let c = 0; c < cells.length; c++) {
+              if (cells[c].includes(keyword)) {
+                const start = c + rowData.tableOffset;
+                const nextCells = cells.slice(start, start + rowData.tableCount);
+                if (nextCells.length > 0) {
+                  tableResults.push({ tableNo: tIdx + 1, rowNo: rIdx + 1, keyword, found: cells[c], next: nextCells.join(' / ') });
                 }
               }
-            });
+            }
           });
         });
       } else {
@@ -856,6 +901,21 @@
           : '표 구조 정보가 없습니다. .hwpx 파일에 표가 포함되어 있는지 확인해주세요.';
       }
     }
+  }
+
+  function countResultsForKeyword(keyword){
+    return wordResults.filter(r => r.keyword === keyword).length
+      + lineResults.filter(r => r.keyword === keyword).length
+      + nextLineResults.filter(r => r.keyword === keyword).length
+      + tableResults.filter(r => r.keyword === keyword).length;
+  }
+
+  // "추출값 병합하기": 이미 각 행에서 개별 추출된 결과들을 모아 통합 결과(자동)를 만든다.
+  runBtn.addEventListener('click', () => {
+    statusEl.textContent = '';
+    const kwRows = getKeywordRows();
+
+    if (kwRows.length === 0) { statusEl.textContent = '찾을 단어를 한 개 이상 입력해주세요.'; return; }
 
     lastModeFlags = {
       word: kwRows.some(r => r.word),
@@ -872,12 +932,14 @@
     renderNextLineTable();
     renderTableTable();
     renderAggTable(lastKeywords);
-    updateCount();
+    switchToTab('agg');
     updateDownloadEnabled();
     updateReflectButtonStates();
 
-    if (wordResults.length === 0 && lineResults.length === 0 && nextLineResults.length === 0 && tableResults.length === 0 && !statusEl.textContent) {
-      statusEl.textContent = '입력한 단어를 텍스트에서 찾지 못했습니다.';
+    if (wordResults.length === 0 && lineResults.length === 0 && nextLineResults.length === 0 && tableResults.length === 0) {
+      statusEl.textContent = '병합할 결과가 없습니다. 먼저 각 단어의 "추출하기"를 눌러주세요.';
+    } else if (!statusEl.textContent) {
+      statusEl.textContent = `${lastKeywords.length}개 단어의 결과를 병합했습니다.`;
     }
   });
 
@@ -1000,7 +1062,7 @@
       const btn = row.querySelector('.reflect-kw');
       const isCommitted = kw && committedKeywords.has(kw);
       btn.classList.toggle('active', isCommitted);
-      btn.textContent = isCommitted ? '✓ 반영됨' : '✔ 열에 반영';
+      btn.textContent = isCommitted ? '✓ 반영됨' : '✔ 반영';
     });
   }
 
