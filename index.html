@@ -140,12 +140,17 @@
   .keyword-row .remove-kw:hover { background: #fee2e2; border-color: #ef4444; color: #ef4444; }
   .reflect-kw {
     flex: none; border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; border-radius: 6px;
-    padding: 4px 7px; font-size: 0.68rem; font-weight: 700; cursor: pointer; white-space: nowrap;
+    padding: 5px 9px; font-size: 0.7rem; font-weight: 700; cursor: pointer; white-space: nowrap;
   }
   .reflect-kw:hover { background: #dbeafe; }
   .reflect-kw.active { background: #dcfce7; border-color: #86efac; color: #166534; }
+  .exclude-apply-btn {
+    flex: none; border: 1px solid #fca5a5; background: #fef2f2; color: #b91c1c; border-radius: 6px;
+    padding: 5px 9px; font-size: 0.7rem; font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+  .exclude-apply-btn:hover { background: #fee2e2; }
   .kw-exclude-input {
-    flex: 1 1 60px; min-width: 50px; border: 1px solid #fecaca; border-radius: 6px; padding: 4px 6px;
+    flex: 1 1 36px; min-width: 28px; border: 1px solid #fecaca; border-radius: 6px; padding: 4px 5px;
     font-size: 0.68rem; font-family: inherit; background: #fff5f5; color: #7f1d1d;
   }
   .kw-exclude-input::placeholder { color: #b91c1c; opacity: 0.6; }
@@ -167,6 +172,8 @@
   }
   .btn-add-kw:hover { background: #dbeafe; }
   .btn-add-kw:disabled { opacity: 0.5; cursor: not-allowed; }
+  .kw-add-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .kw-add-note { font-size: 0.74rem; color: #64748b; white-space: nowrap; }
 
   .bottom-row {
     display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
@@ -265,17 +272,20 @@
     <div class="settings-section">
       <div class="field-label">
         <span>찾을 단어 &amp; 단어별 추출 방식</span>
-        <span class="kw-count"><span id="kw-current-count">6</span> / 12</span>
+        <span class="kw-count"><span id="kw-current-count">6</span> / 20</span>
       </div>
 
-      <div class="kw-hint">추출 방식은 단어별로 선택 · 표 옆칸은 HWPX 전용</div>
+      <div class="kw-hint">추출 방식은 단어별로 선택 · 표 옆칸은 HWPX 전용 · ⚠️ 띄어쓰기까지 정확히 일치해야 검색됩니다</div>
 
       <div class="keyword-list" id="keyword-list"></div>
 
       <div class="kw-committed" id="kw-committed"></div>
 
       <div class="bottom-row">
-        <button type="button" class="btn-add-kw" id="add-keyword-btn">+ 단어 추가</button>
+        <div class="kw-add-group">
+          <button type="button" class="btn-add-kw" id="add-keyword-btn">+ 단어 추가</button>
+          <span class="kw-add-note">(기본 6개, 최대 20개까지 추가 가능)</span>
+        </div>
         <div class="agg-format-row">
           <span class="field-label">통합 결과 형식</span>
           <label class="opt"><input type="radio" name="agg-format" value="wide" checked> 우측에 칼럼 추가 (기본)</label>
@@ -320,11 +330,11 @@
   const keywordList = document.getElementById('keyword-list');
   const addKeywordBtn = document.getElementById('add-keyword-btn');
   const kwCurrentCount = document.getElementById('kw-current-count');
-  const MAX_KEYWORDS = 12;
+  const MAX_KEYWORDS = 20;
   const DEFAULT_KEYWORDS = 6;
   const ADD_STEP = 2;
 
-  /* ---------- 단어 + 단어별 추출방식 행 (기본 6개, 2개씩 추가, 최대 12개) ---------- */
+  /* ---------- 단어 + 단어별 추출방식 행 (기본 6개, 2개씩 추가, 최대 20개) ---------- */
   function makeKeywordRow(defaults){
     const d = defaults || {
       word: true, line: true, nextline: false, table: false,
@@ -360,7 +370,8 @@
         </div>
         <div class="kw-actions">
           <button type="button" class="row-run-btn" title="이 단어만 지금 바로 추출합니다">추출하기</button>
-          <input type="text" class="kw-exclude-input" placeholder="제외할 값" title="여기 입력한 값을 포함하는 추출 결과는 반영에서 제외합니다 (쉼표로 여러 개 구분)">
+          <input type="text" class="kw-exclude-input" placeholder="제외할 값" title="여기 입력한 값을 포함하는 추출 결과는 이 단어의 추출 결과에서 제거합니다 (쉼표로 여러 개 구분)">
+          <button type="button" class="exclude-apply-btn" title="입력한 제외 값을 지금 바로 추출 결과에 적용합니다">제외값 반영</button>
           <button type="button" class="reflect-kw" title="이 단어의 추출 결과를 엑셀 열로 반영">✔ 반영</button>
           <button type="button" class="remove-kw" title="삭제">×</button>
         </div>
@@ -386,6 +397,22 @@
       const cnt = countResultsForKeyword(rowData.keyword);
       flashRunButton(runBtnEl, cnt > 0 ? `${cnt}건 추출됨` : '결과 없음');
       document.querySelector('.preview-panel-full').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+
+    row.querySelector('.exclude-apply-btn').addEventListener('click', () => {
+      const btn = row.querySelector('.exclude-apply-btn');
+      const kw = kwInput.value.trim();
+      if (!kw) { flashExcludeButton(btn, '단어를 입력하세요'); return; }
+      const excludeTerms = row.querySelector('.kw-exclude-input').value
+        .split(',').map(s => s.trim()).filter(s => s.length > 0);
+      if (excludeTerms.length === 0) { flashExcludeButton(btn, '제외할 값을 입력하세요'); return; }
+      const removedCount = applyExcludeToKeyword(kw, excludeTerms);
+      updateDownloadEnabled();
+      updateReflectButtonStates();
+      const posIdx = row.querySelector('.kw-index').textContent;
+      if (activeTab === 'kw-' + posIdx) renderKeywordPreview(activeTab);
+      updateCount();
+      flashExcludeButton(btn, removedCount > 0 ? `${removedCount}건 제외됨` : '해당 값 없음');
     });
 
     row.querySelector('.reflect-kw').addEventListener('click', () => {
@@ -416,6 +443,23 @@
     setTimeout(() => { btn.textContent = '추출하기'; }, 1400);
   }
 
+  function flashExcludeButton(btn, message){
+    btn.textContent = message;
+    setTimeout(() => { btn.textContent = '제외값 반영'; }, 1400);
+  }
+
+  // 특정 키워드의 현재 추출 결과 중, excludeTerms 중 하나라도 값에 포함된 항목을 실제로 제거한다.
+  // 반환값은 제거된 건수.
+  function applyExcludeToKeyword(keyword, excludeTerms){
+    const before = countResultsForKeyword(keyword);
+    const matches = (v) => excludeTerms.some(t => String(v).includes(t));
+    wordResults = wordResults.filter(r => r.keyword !== keyword || !matches(r.next));
+    lineResults = lineResults.filter(r => r.keyword !== keyword || !matches(r.line));
+    nextLineResults = nextLineResults.filter(r => r.keyword !== keyword || !matches(r.nextLine));
+    tableResults = tableResults.filter(r => r.keyword !== keyword || !matches(r.next));
+    return before - countResultsForKeyword(keyword);
+  }
+
   function getCount(inputEl){
     const n = parseInt(inputEl.value, 10);
     if (!Number.isFinite(n) || n < 1) return 1;
@@ -427,6 +471,7 @@
       const idx = row.querySelector('.kw-index');
       if (idx) idx.textContent = i + 1;
     });
+    resortCommittedColumns();
     renderKeywordTabs();
   }
 
@@ -447,6 +492,7 @@
     }
     updateKeywordCount();
     renumberKeywordRows();
+    updateReflectButtonStates();
     if (firstNewRow) firstNewRow.querySelector('input').focus();
   });
 
@@ -478,6 +524,7 @@
   for (let i = 0; i < DEFAULT_KEYWORDS; i++) keywordList.appendChild(makeKeywordRow());
   updateKeywordCount();
   renumberKeywordRows();
+  updateReflectButtonStates();
   switchToTab('kw-1');
 
   // 한 행(DOM)에서 키워드, 선택된 추출 방식, 번째/개수 설정을 읽어온다.
@@ -1055,10 +1102,33 @@
   }
 
   /* ---------- 엑셀 열에 반영 (수동 병합) ---------- */
+  // 어떤 단어가 현재 몇 번째 행(추출위치)에 있는지 찾는다. 행이 삭제되어 없으면 null.
+  function getRowPositionForKeyword(keyword){
+    const rows = [...keywordList.children];
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].querySelector('.keyword-input').value.trim() === keyword) return i + 1;
+    }
+    return null;
+  }
+
+  // 반영 순서가 아니라, 단어 목록에서의 실제 위치(행 순서) 기준으로 committedColumns를 정렬해서
+  // 엑셀 열 번호가 항상 각 행의 위치와 일치하도록 맞춘다. (위치를 찾지 못하면 맨 뒤)
+  function resortCommittedColumns(){
+    committedColumns.sort((a, b) => {
+      const pa = getRowPositionForKeyword(a.keyword);
+      const pb = getRowPositionForKeyword(b.keyword);
+      if (pa === null && pb === null) return 0;
+      if (pa === null) return 1;
+      if (pb === null) return -1;
+      return pa - pb;
+    });
+  }
+
   function upsertCommittedColumn(keyword, items){
     const idx = committedColumns.findIndex(c => c.keyword === keyword);
-    if (idx >= 0) committedColumns[idx] = { keyword, items };
-    else committedColumns.push({ keyword, items });
+    if (idx >= 0) { committedColumns[idx] = { keyword, items }; return; }
+    committedColumns.push({ keyword, items });
+    resortCommittedColumns();
   }
 
   function removeCommittedColumn(keyword){
@@ -1096,12 +1166,13 @@
 
   function updateReflectButtonStates(){
     const committedKeywords = new Set(committedColumns.map(c => c.keyword));
-    keywordList.querySelectorAll('.keyword-row').forEach(row => {
+    keywordList.querySelectorAll('.keyword-row').forEach((row, i) => {
       const kw = row.querySelector('.keyword-input').value.trim();
       const btn = row.querySelector('.reflect-kw');
+      const colNum = i + 2; // 1열은 "번호" 열, 이 행은 항상 자기 위치+1 열
       const isCommitted = kw && committedKeywords.has(kw);
       btn.classList.toggle('active', isCommitted);
-      btn.textContent = isCommitted ? '✓ 반영됨' : '✔ 반영';
+      btn.textContent = isCommitted ? `엑셀파일 ${colNum}열에 반영됨` : `엑셀파일 ${colNum}열에 반영`;
     });
   }
 
@@ -1158,52 +1229,8 @@
     const wb = XLSX.utils.book_new();
     let added = false;
 
-    if (wordResults.length > 0) {
-      const rows = [['번호', '줄 번호', '검색어', '찾은 단어', '바로 다음 단어']];
-      wordResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:16},{wch:24}];
-      XLSX.utils.book_append_sheet(wb, ws, '뒤 단어 결과');
-      added = true;
-    }
-
-    if (lineResults.length > 0) {
-      const rows = [['번호', '줄 번호', '검색어', '일치 횟수', '해당 줄 전체']];
-      lineResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, r.matchCount, sanitizeCell(r.line)]));
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:10},{wch:70}];
-      XLSX.utils.book_append_sheet(wb, ws, '해당 줄 결과');
-      added = true;
-    }
-
-    if (nextLineResults.length > 0) {
-      const rows = [['번호', '줄 번호', '검색어', '일치 횟수', '다음 줄 전체']];
-      nextLineResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, r.matchCount, sanitizeCell(r.nextLine)]));
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:10},{wch:70}];
-      XLSX.utils.book_append_sheet(wb, ws, '다음 줄 결과');
-      added = true;
-    }
-
-    if (tableResults.length > 0) {
-      const rows = [['번호', '표 번호', '행 번호', '검색어', '찾은 칸', '옆 칸 값']];
-      tableResults.forEach((r, i) => rows.push([i + 1, r.tableNo, r.rowNo, r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws['!cols'] = [{wch:6},{wch:8},{wch:8},{wch:14},{wch:20},{wch:24}];
-      XLSX.utils.book_append_sheet(wb, ws, '표 옆칸 결과');
-      added = true;
-    }
-
-    const aggForExport = computeAggregate(lastKeywords);
-    if (aggForExport && aggForExport.dataRows.length > 0) {
-      const rows = [['번호', ...aggForExport.headers]];
-      aggForExport.dataRows.forEach((cells, i) => rows.push([i + 1, ...cells.map(sanitizeCell)]));
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws['!cols'] = [{wch:6}, ...aggForExport.headers.map(() => ({wch:18}))];
-      XLSX.utils.book_append_sheet(wb, ws, '통합 결과');
-      added = true;
-    }
-
+    // "열에 반영"으로 확정한 데이터가 있으면, 다른 개별 결과/통합 결과 시트는 빼고
+    // "반영된 열 병합" 시트 하나만 다운로드한다.
     const committedMerge = computeCommittedMerge();
     if (committedMerge && committedMerge.dataRows.length > 0) {
       const rows = [['번호', ...committedMerge.headers]];
@@ -1212,6 +1239,52 @@
       ws['!cols'] = [{wch:6}, ...committedMerge.headers.map(() => ({wch:18}))];
       XLSX.utils.book_append_sheet(wb, ws, '반영된 열 병합');
       added = true;
+    } else {
+      if (wordResults.length > 0) {
+        const rows = [['번호', '줄 번호', '검색어', '찾은 단어', '바로 다음 단어']];
+        wordResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:16},{wch:24}];
+        XLSX.utils.book_append_sheet(wb, ws, '뒤 단어 결과');
+        added = true;
+      }
+
+      if (lineResults.length > 0) {
+        const rows = [['번호', '줄 번호', '검색어', '일치 횟수', '해당 줄 전체']];
+        lineResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, r.matchCount, sanitizeCell(r.line)]));
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:10},{wch:70}];
+        XLSX.utils.book_append_sheet(wb, ws, '해당 줄 결과');
+        added = true;
+      }
+
+      if (nextLineResults.length > 0) {
+        const rows = [['번호', '줄 번호', '검색어', '일치 횟수', '다음 줄 전체']];
+        nextLineResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, r.matchCount, sanitizeCell(r.nextLine)]));
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:10},{wch:70}];
+        XLSX.utils.book_append_sheet(wb, ws, '다음 줄 결과');
+        added = true;
+      }
+
+      if (tableResults.length > 0) {
+        const rows = [['번호', '표 번호', '행 번호', '검색어', '찾은 칸', '옆 칸 값']];
+        tableResults.forEach((r, i) => rows.push([i + 1, r.tableNo, r.rowNo, r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws['!cols'] = [{wch:6},{wch:8},{wch:8},{wch:14},{wch:20},{wch:24}];
+        XLSX.utils.book_append_sheet(wb, ws, '표 옆칸 결과');
+        added = true;
+      }
+
+      const aggForExport = computeAggregate(lastKeywords);
+      if (aggForExport && aggForExport.dataRows.length > 0) {
+        const rows = [['번호', ...aggForExport.headers]];
+        aggForExport.dataRows.forEach((cells, i) => rows.push([i + 1, ...cells.map(sanitizeCell)]));
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws['!cols'] = [{wch:6}, ...aggForExport.headers.map(() => ({wch:18}))];
+        XLSX.utils.book_append_sheet(wb, ws, '통합 결과');
+        added = true;
+      }
     }
 
     if (!added) return;
