@@ -155,7 +155,7 @@
 
   function updateKeywordCount(){
     const n = keywordList.children.length;
-    kwCurrentCount.textContent = n;
+    if (kwCurrentCount) kwCurrentCount.textContent = n;
     addKeywordBtn.disabled = n >= MAX_KEYWORDS;
   }
 
@@ -970,12 +970,14 @@
 
   /* ---------- 설정 저장/불러오기 (브라우저에 여러 개 이름 붙여 저장 / 파일 저장) ---------- */
   const SAVED_LIST_KEY = 'wordExtractorSettingsList_v1';
+  const saveNameInput = document.getElementById('save-name-input');
+  const savedSelect = document.getElementById('saved-select');
   const saveBrowserBtn = document.getElementById('save-browser-btn');
   const loadBrowserBtn = document.getElementById('load-browser-btn');
+  const deleteBrowserBtn = document.getElementById('delete-browser-btn');
   const saveFileBtn = document.getElementById('save-file-btn');
   const loadFileBtn = document.getElementById('load-file-btn');
   const loadFileInput = document.getElementById('load-file-input');
-  const savedListEl = document.getElementById('kw-saved-list');
 
   function flashSettingsButton(btn, message, resetText){
     btn.textContent = message;
@@ -1028,76 +1030,67 @@
     return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
-  function renderSavedList(){
+  // 드롭다운 목록을 저장된 항목들로 다시 채운다. keepName이 있으면 그 이름을 선택 상태로 유지한다.
+  function refreshSavedSelect(keepName){
     const list = loadSavedList();
-    if (list.length === 0) {
-      savedListEl.innerHTML = '<div class="kw-saved-empty">아직 브라우저에 저장된 설정이 없습니다.</div>';
-      return;
+    const options = ['<option value="">저장목록</option>']
+      .concat(list.map((item, i) => `<option value="${i}">${escapeHtml(item.name)} (${escapeHtml(formatSavedDate(item.savedAt))})</option>`));
+    savedSelect.innerHTML = options.join('');
+    if (keepName) {
+      const idx = list.findIndex(item => item.name === keepName);
+      if (idx >= 0) savedSelect.value = String(idx);
     }
-    savedListEl.innerHTML = list.map((item, i) => `
-      <div class="kw-saved-item" data-idx="${i}">
-        <span class="kw-saved-name">${escapeHtml(item.name)}</span>
-        <span class="kw-saved-date">${escapeHtml(formatSavedDate(item.savedAt))}</span>
-        <button type="button" class="kw-saved-load">불러오기</button>
-        <button type="button" class="kw-saved-delete" title="이 저장 항목 삭제">×</button>
-      </div>
-    `).join('');
-
-    savedListEl.querySelectorAll('.kw-saved-item').forEach(itemEl => {
-      const idx = Number(itemEl.dataset.idx);
-      itemEl.querySelector('.kw-saved-load').addEventListener('click', () => {
-        const list2 = loadSavedList();
-        const item = list2[idx];
-        if (!item) return;
-        try {
-          applyAllSettings(item.data);
-          flashSettingsButton(loadBrowserBtn, '✓ 불러옴', '📂 저장 목록');
-        } catch (err) {
-          flashSettingsButton(loadBrowserBtn, '불러오기 실패', '📂 저장 목록');
-        }
-      });
-      itemEl.querySelector('.kw-saved-delete').addEventListener('click', () => {
-        const list2 = loadSavedList();
-        const item = list2[idx];
-        if (!item) return;
-        if (!confirm(`"${item.name}" 저장 항목을 삭제할까요?`)) return;
-        list2.splice(idx, 1);
-        saveSavedList(list2);
-        renderSavedList();
-      });
-    });
   }
 
+  function getSelectedSavedIndex(){
+    const v = savedSelect.value;
+    return v === '' ? -1 : Number(v);
+  }
+
+  refreshSavedSelect();
+
   saveBrowserBtn.addEventListener('click', () => {
+    const name = saveNameInput.value.trim();
+    if (!name) { flashSettingsButton(saveBrowserBtn, '이름을 입력하세요', '💾 현재 설정 저장'); return; }
+
     const list = loadSavedList();
-    const defaultName = `설정 ${list.length + 1} (${formatSavedDate(new Date().toISOString())})`;
-    const name = window.prompt('저장할 이름을 입력하세요 (여러 개를 이름으로 구분해 저장할 수 있습니다)', defaultName);
-    if (name === null) return; // 취소
-    const finalName = name.trim() || defaultName;
+    const existingIdx = list.findIndex(item => item.name === name);
+    // 같은 이름이 있으면 확인 없이 바로 덮어쓴다.
 
-    const existingIdx = list.findIndex(item => item.name === finalName);
-    if (existingIdx >= 0) {
-      if (!confirm(`"${finalName}" 이름으로 이미 저장된 설정이 있습니다. 덮어쓸까요?`)) return;
-    }
-
-    const entry = { name: finalName, savedAt: new Date().toISOString(), data: collectAllSettings() };
+    const entry = { name, savedAt: new Date().toISOString(), data: collectAllSettings() };
     if (existingIdx >= 0) list[existingIdx] = entry;
     else list.push(entry);
 
     saveSavedList(list);
-    savedListEl.classList.remove('hidden');
-    renderSavedList();
-    flashSettingsButton(saveBrowserBtn, '✓ 저장됨', '💾 브라우저 저장');
+    refreshSavedSelect(name);
+    saveNameInput.value = '';
+    flashSettingsButton(saveBrowserBtn, '✓ 저장됨', '💾 현재 설정 저장');
   });
 
   loadBrowserBtn.addEventListener('click', () => {
-    const isHidden = savedListEl.classList.contains('hidden');
-    if (isHidden) {
-      renderSavedList();
-      savedListEl.classList.remove('hidden');
-    } else {
-      savedListEl.classList.add('hidden');
+    const idx = getSelectedSavedIndex();
+    if (idx < 0) { flashSettingsButton(loadBrowserBtn, '항목을 선택하세요', '📥 불러오기'); return; }
+    const item = loadSavedList()[idx];
+    if (!item) return;
+    try {
+      applyAllSettings(item.data);
+      flashSettingsButton(loadBrowserBtn, '✓ 불러옴', '📥 불러오기');
+    } catch (err) {
+      flashSettingsButton(loadBrowserBtn, '불러오기 실패', '📥 불러오기');
     }
+  });
+
+  deleteBrowserBtn.addEventListener('click', () => {
+    const idx = getSelectedSavedIndex();
+    if (idx < 0) { flashSettingsButton(deleteBrowserBtn, '항목을 선택하세요', '🗑️ 삭제'); return; }
+    const list = loadSavedList();
+    const item = list[idx];
+    if (!item) return;
+    if (!confirm(`"${item.name}" 저장 항목을 삭제할까요?`)) return;
+    list.splice(idx, 1);
+    saveSavedList(list);
+    refreshSavedSelect();
+    flashSettingsButton(deleteBrowserBtn, '✓ 삭제됨', '🗑️ 삭제');
   });
 
   saveFileBtn.addEventListener('click', () => {

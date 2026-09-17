@@ -64,18 +64,20 @@
     <div class="settings-section">
       <div class="field-label">
         <span>찾을 단어 &amp; 단어별 추출 방식</span>
-        <div class="kw-settings-actions">
-          <span class="kw-count"><span id="kw-current-count">6</span> / 20</span>
-          <span class="kw-settings-hint">현재 설정을 브라우저에 저장하거나 파일로 저장 가능</span>
-          <button type="button" class="kw-settings-btn" id="save-browser-btn" title="이름을 붙여서 지금 설정을 이 브라우저에 저장합니다 (여러 개 저장 가능)">💾 브라우저 저장</button>
-          <button type="button" class="kw-settings-btn" id="load-browser-btn" title="이 브라우저에 저장해둔 설정 목록을 보여줍니다">📂 저장 목록</button>
-          <button type="button" class="kw-settings-btn" id="save-file-btn" title="설정을 파일(.json)로 내려받습니다. 이 파일을 다른 컴퓨터로 옮기면 그 컴퓨터에서도 똑같이 불러올 수 있습니다">⬇️ 파일로 저장</button>
-          <button type="button" class="kw-settings-btn" id="load-file-btn" title="저장해둔 설정 파일(.json)을 불러옵니다">⬆️ 파일 불러오기</button>
-          <input type="file" id="load-file-input" accept=".json,application/json" class="hidden">
-        </div>
       </div>
 
-      <div class="kw-saved-list hidden" id="kw-saved-list"></div>
+      <div class="kw-settings-actions">
+        <input type="text" class="kw-save-name-input" id="save-name-input" placeholder="저장할 이름">
+        <button type="button" class="kw-settings-btn" id="save-browser-btn" title="입력한 이름으로 지금 설정을 이 브라우저에 저장합니다 (여러 개 저장 가능)">💾 현재 설정 저장</button>
+        <select class="kw-saved-select" id="saved-select" title="저장된 설정 목록">
+          <option value="">저장목록</option>
+        </select>
+        <button type="button" class="kw-settings-btn" id="load-browser-btn" title="선택한 저장 항목을 불러옵니다">📥 불러오기</button>
+        <button type="button" class="kw-settings-btn" id="delete-browser-btn" title="선택한 저장 항목을 삭제합니다">🗑️ 삭제</button>
+        <button type="button" class="kw-settings-btn" id="save-file-btn" title="설정을 파일(.json)로 내려받습니다. 이 파일을 다른 컴퓨터로 옮기면 그 컴퓨터에서도 똑같이 불러올 수 있습니다">⬇️ 파일로 저장</button>
+        <button type="button" class="kw-settings-btn" id="load-file-btn" title="저장해둔 설정 파일(.json)을 불러옵니다">⬆️ 파일 불러오기</button>
+        <input type="file" id="load-file-input" accept=".json,application/json" class="hidden">
+      </div>
 
       <div class="kw-hint">추출 방식은 단어별로 선택 · 표 옆칸은 HWPX 전용 · ⚠️ 띄어쓰기까지 정확히 일치해야 검색됩니다</div>
 
