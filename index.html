@@ -355,7 +355,10 @@
 
   /* ---------- 단어 + 단어별 추출방식 행 (기본 6개, 2개씩 추가, 최대 12개) ---------- */
   function makeKeywordRow(defaults){
-    const d = defaults || { word: true, line: true, nextline: false, table: false, wordCount: 1, nextlineCount: 1, tableCount: 1 };
+    const d = defaults || {
+      word: true, line: true, nextline: false, table: false,
+      wordOffset: 1, wordCount: 1, nextlineOffset: 1, nextlineCount: 1, tableOffset: 1, tableCount: 1
+    };
     const row = document.createElement('div');
     row.className = 'keyword-row';
     row.innerHTML = `
@@ -363,13 +366,16 @@
       <input type="text" class="keyword-input" placeholder="예: 이름">
       <div class="kw-modes">
         <label><input type="checkbox" class="kw-mode-word" ${d.word ? 'checked' : ''}> 뒤 단어
+          <input type="number" class="kw-count-input kw-offset-word" min="1" max="20" value="${d.wordOffset || 1}">번째 단어
           <input type="number" class="kw-count-input kw-count-word" min="1" max="20" value="${d.wordCount || 1}"> 개
         </label>
         <label><input type="checkbox" class="kw-mode-line" ${d.line ? 'checked' : ''}> 해당 줄</label>
         <label><input type="checkbox" class="kw-mode-nextline" ${d.nextline ? 'checked' : ''}> 다음 줄
+          <input type="number" class="kw-count-input kw-offset-nextline" min="1" max="20" value="${d.nextlineOffset || 1}">번째 줄
           <input type="number" class="kw-count-input kw-count-nextline" min="1" max="20" value="${d.nextlineCount || 1}"> 줄
         </label>
         <label><input type="checkbox" class="kw-mode-table" ${d.table ? 'checked' : ''}> 표 옆칸
+          <input type="number" class="kw-count-input kw-offset-table" min="1" max="20" value="${d.tableOffset || 1}">번째 칸
           <input type="number" class="kw-count-input kw-count-table" min="1" max="20" value="${d.tableCount || 1}"> 칸
         </label>
       </div>
@@ -491,8 +497,11 @@
         line: rowEl.querySelector('.kw-mode-line').checked,
         nextline: rowEl.querySelector('.kw-mode-nextline').checked,
         table: rowEl.querySelector('.kw-mode-table').checked,
+        wordOffset: getCount(rowEl.querySelector('.kw-offset-word')),
         wordCount: getCount(rowEl.querySelector('.kw-count-word')),
+        nextlineOffset: getCount(rowEl.querySelector('.kw-offset-nextline')),
         nextlineCount: getCount(rowEl.querySelector('.kw-count-nextline')),
+        tableOffset: getCount(rowEl.querySelector('.kw-offset-table')),
         tableCount: getCount(rowEl.querySelector('.kw-count-table')),
       };
       if (!map.has(kw)) { map.set(kw, { keyword: kw, ...flags }); order.push(kw); }
@@ -502,8 +511,11 @@
         existing.line = existing.line || flags.line;
         existing.nextline = existing.nextline || flags.nextline;
         existing.table = existing.table || flags.table;
+        existing.wordOffset = Math.max(existing.wordOffset, flags.wordOffset);
         existing.wordCount = Math.max(existing.wordCount, flags.wordCount);
+        existing.nextlineOffset = Math.max(existing.nextlineOffset, flags.nextlineOffset);
         existing.nextlineCount = Math.max(existing.nextlineCount, flags.nextlineCount);
+        existing.tableOffset = Math.max(existing.tableOffset, flags.tableOffset);
         existing.tableCount = Math.max(existing.tableCount, flags.tableCount);
       }
     });
@@ -794,7 +806,8 @@
         if (row.word) {
           for (let i = 0; i < tokens.length; i++) {
             if (tokens[i] === keyword) {
-              const nextTokens = tokens.slice(i + 1, i + 1 + row.wordCount);
+              const start = i + row.wordOffset;
+              const nextTokens = tokens.slice(start, start + row.wordCount);
               if (nextTokens.length > 0) {
                 wordResults.push({ lineNo, keyword, found: tokens[i], next: nextTokens.join(' ') });
               }
@@ -809,7 +822,8 @@
 
         if (row.nextline && line.includes(keyword)) {
           const matchCount = tokens.filter(t => t === keyword).length || (line.split(keyword).length - 1);
-          const nextChunk = lines.slice(lineIdx + 1, lineIdx + 1 + row.nextlineCount).join('\n');
+          const start = lineIdx + row.nextlineOffset;
+          const nextChunk = lines.slice(start, start + row.nextlineCount).join('\n');
           if (nextChunk.length > 0) {
             nextLineResults.push({ lineNo, keyword, matchCount, nextLine: nextChunk });
           }
@@ -826,7 +840,8 @@
               const keyword = row.keyword;
               for (let c = 0; c < cells.length; c++) {
                 if (cells[c].includes(keyword)) {
-                  const nextCells = cells.slice(c + 1, c + 1 + row.tableCount);
+                  const start = c + row.tableOffset;
+                  const nextCells = cells.slice(start, start + row.tableCount);
                   if (nextCells.length > 0) {
                     tableResults.push({ tableNo: tIdx + 1, rowNo: rIdx + 1, keyword, found: cells[c], next: nextCells.join(' / ') });
                   }
@@ -949,12 +964,18 @@
     committedColumns = committedColumns.filter(c => c.keyword !== keyword);
   }
 
+  // 반영된 열은 줄 번호나 표 행 번호가 서로 달라도(문서 안에서 값들이 다른 줄에 있어도)
+  // "같은 행에서 오른쪽으로 계속 반영"되도록, 식별자로 묶지 않고 각 열이 반영된 순서(=문서에
+  // 나온 순서) 그대로 나란히 배치한다. 즉 각 단어의 n번째 값끼리 같은 행에 놓인다.
   function computeCommittedMerge(){
     if (committedColumns.length === 0) return null;
-    const items = [];
-    committedColumns.forEach(col => items.push(...col.items));
     const keywords = committedColumns.map(c => c.keyword);
-    return buildWideFromItems(items, keywords);
+    const maxLen = Math.max(...committedColumns.map(c => c.items.length));
+    const dataRows = [];
+    for (let i = 0; i < maxLen; i++) {
+      dataRows.push(committedColumns.map(c => (c.items[i] ? c.items[i].value : '')));
+    }
+    return { headers: keywords, dataRows };
   }
 
   function renderCommittedChips(){
