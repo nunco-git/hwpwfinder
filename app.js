@@ -22,7 +22,7 @@
     row.className = 'keyword-row';
     row.innerHTML = `
       <span class="kw-index">1</span>
-      <input type="text" class="keyword-input" placeholder="예: 이름">
+      <input type="text" class="keyword-input" placeholder="예: 이름" value="${escapeHtml(d.keyword || '')}">
       <div class="kw-right">
         <div class="kw-modes">
           <label><input type="checkbox" class="kw-mode-word" ${d.word ? 'checked' : ''}> 뒤단어
@@ -43,12 +43,12 @@
             </select>
             <input type="number" class="kw-count-input kw-offset-table" min="1" max="20" value="${d.tableOffset || 1}">째
             <input type="number" class="kw-count-input kw-count-table" min="1" max="20" value="${d.tableCount || 1}">칸
-            (<input type="text" class="kw-table-stopword" placeholder="단어">) 단어 앞까지
+            (<input type="text" class="kw-table-stopword" placeholder="단어" value="${escapeHtml(d.tableStopWord || '')}">) 단어 앞까지
           </label>
         </div>
         <div class="kw-actions">
           <button type="button" class="row-run-btn" title="이 단어만 지금 바로 추출합니다">추출하기</button>
-          <input type="text" class="kw-exclude-input" placeholder="제외할 값" title="여기 입력한 값을 포함하는 추출 결과는 이 단어의 추출 결과에서 제거합니다 (쉼표로 여러 개 구분)">
+          <input type="text" class="kw-exclude-input" placeholder="제외할 값" title="여기 입력한 값을 포함하는 추출 결과는 이 단어의 추출 결과에서 제거합니다 (쉼표로 여러 개 구분)" value="${escapeHtml(d.excludeValue || '')}">
           <button type="button" class="exclude-apply-btn" title="입력한 제외 값을 지금 바로 추출 결과에 적용합니다">제외값 반영</button>
           <button type="button" class="reflect-kw" title="이 단어의 추출 결과를 엑셀 열로 반영">✔ 반영</button>
           <button type="button" class="remove-kw" title="삭제">×</button>
@@ -221,6 +221,7 @@
       tableOffset: getCount(rowEl.querySelector('.kw-offset-table')),
       tableCount: getCount(rowEl.querySelector('.kw-count-table')),
       tableStopWord: rowEl.querySelector('.kw-table-stopword').value.trim(),
+      excludeValue: rowEl.querySelector('.kw-exclude-input').value.trim(),
     };
   }
 
@@ -965,5 +966,99 @@
     if (!added) return;
     const label = sanitizeFilenamePart(lastKeywords.length > 0 ? lastKeywords[0] : 'result');
     XLSX.writeFile(wb, `단어추출_${label}.xlsx`);
+  });
+
+  /* ---------- 설정 저장/불러오기 (브라우저 저장 / 파일 저장) ---------- */
+  const STORAGE_KEY = 'wordExtractorSettings_v1';
+  const saveBrowserBtn = document.getElementById('save-browser-btn');
+  const loadBrowserBtn = document.getElementById('load-browser-btn');
+  const saveFileBtn = document.getElementById('save-file-btn');
+  const loadFileBtn = document.getElementById('load-file-btn');
+  const loadFileInput = document.getElementById('load-file-input');
+
+  function flashSettingsButton(btn, message, resetText){
+    btn.textContent = message;
+    setTimeout(() => { btn.textContent = resetText; }, 1600);
+  }
+
+  // 현재 화면에 있는 단어 목록·모드·통합 결과 형식을 하나의 순수 데이터 객체로 모은다.
+  function collectAllSettings(){
+    const rows = [...keywordList.querySelectorAll('.keyword-row')].map(getRowData);
+    const aggRadio = document.querySelector('input[name="agg-format"]:checked');
+    return { version: 1, aggFormat: aggRadio ? aggRadio.value : 'wide', rows };
+  }
+
+  // 저장된 데이터로 단어 목록·모드·통합 결과 형식을 되살린다.
+  function applyAllSettings(settings){
+    if (!settings || !Array.isArray(settings.rows) || settings.rows.length === 0) {
+      throw new Error('유효한 설정 데이터가 아닙니다.');
+    }
+    const rowsData = settings.rows.slice(0, MAX_KEYWORDS);
+    keywordList.innerHTML = '';
+    rowsData.forEach(rd => keywordList.appendChild(makeKeywordRow(rd)));
+    updateKeywordCount();
+    renumberKeywordRows();
+    updateReflectButtonStates();
+
+    const fmt = settings.aggFormat === 'long' ? 'long' : 'wide';
+    const radio = document.querySelector(`input[name="agg-format"][value="${fmt}"]`);
+    if (radio) radio.checked = true;
+    aggFormat = fmt;
+  }
+
+  saveBrowserBtn.addEventListener('click', () => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(collectAllSettings()));
+      flashSettingsButton(saveBrowserBtn, '✓ 저장됨', '💾 브라우저 저장');
+    } catch (err) {
+      flashSettingsButton(saveBrowserBtn, '저장 실패', '💾 브라우저 저장');
+    }
+  });
+
+  loadBrowserBtn.addEventListener('click', () => {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) { flashSettingsButton(loadBrowserBtn, '저장된 설정 없음', '📂 불러오기'); return; }
+    try {
+      applyAllSettings(JSON.parse(raw));
+      flashSettingsButton(loadBrowserBtn, '✓ 불러옴', '📂 불러오기');
+    } catch (err) {
+      flashSettingsButton(loadBrowserBtn, '불러오기 실패', '📂 불러오기');
+    }
+  });
+
+  saveFileBtn.addEventListener('click', () => {
+    const data = collectAllSettings();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `단어추출_설정_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    flashSettingsButton(saveFileBtn, '✓ 저장됨', '⬇️ 파일로 저장');
+  });
+
+  loadFileBtn.addEventListener('click', () => loadFileInput.click());
+
+  loadFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        applyAllSettings(JSON.parse(ev.target.result));
+        flashSettingsButton(loadFileBtn, '✓ 불러옴', '⬆️ 파일 불러오기');
+      } catch (err) {
+        flashSettingsButton(loadFileBtn, '파일 형식 오류', '⬆️ 파일 불러오기');
+      }
+      loadFileInput.value = '';
+    };
+    reader.onerror = () => {
+      flashSettingsButton(loadFileBtn, '읽기 실패', '⬆️ 파일 불러오기');
+      loadFileInput.value = '';
+    };
+    reader.readAsText(file, 'UTF-8');
   });
 })();
