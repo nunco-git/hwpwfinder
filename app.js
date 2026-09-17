@@ -968,13 +968,14 @@
     XLSX.writeFile(wb, `단어추출_${label}.xlsx`);
   });
 
-  /* ---------- 설정 저장/불러오기 (브라우저 저장 / 파일 저장) ---------- */
-  const STORAGE_KEY = 'wordExtractorSettings_v1';
+  /* ---------- 설정 저장/불러오기 (브라우저에 여러 개 이름 붙여 저장 / 파일 저장) ---------- */
+  const SAVED_LIST_KEY = 'wordExtractorSettingsList_v1';
   const saveBrowserBtn = document.getElementById('save-browser-btn');
   const loadBrowserBtn = document.getElementById('load-browser-btn');
   const saveFileBtn = document.getElementById('save-file-btn');
   const loadFileBtn = document.getElementById('load-file-btn');
   const loadFileInput = document.getElementById('load-file-input');
+  const savedListEl = document.getElementById('kw-saved-list');
 
   function flashSettingsButton(btn, message, resetText){
     btn.textContent = message;
@@ -1006,23 +1007,96 @@
     aggFormat = fmt;
   }
 
-  saveBrowserBtn.addEventListener('click', () => {
+  function loadSavedList(){
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(collectAllSettings()));
-      flashSettingsButton(saveBrowserBtn, '✓ 저장됨', '💾 브라우저 저장');
+      const raw = localStorage.getItem(SAVED_LIST_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list) ? list : [];
     } catch (err) {
-      flashSettingsButton(saveBrowserBtn, '저장 실패', '💾 브라우저 저장');
+      return [];
     }
+  }
+
+  function saveSavedList(list){
+    localStorage.setItem(SAVED_LIST_KEY, JSON.stringify(list));
+  }
+
+  function formatSavedDate(iso){
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function renderSavedList(){
+    const list = loadSavedList();
+    if (list.length === 0) {
+      savedListEl.innerHTML = '<div class="kw-saved-empty">아직 브라우저에 저장된 설정이 없습니다.</div>';
+      return;
+    }
+    savedListEl.innerHTML = list.map((item, i) => `
+      <div class="kw-saved-item" data-idx="${i}">
+        <span class="kw-saved-name">${escapeHtml(item.name)}</span>
+        <span class="kw-saved-date">${escapeHtml(formatSavedDate(item.savedAt))}</span>
+        <button type="button" class="kw-saved-load">불러오기</button>
+        <button type="button" class="kw-saved-delete" title="이 저장 항목 삭제">×</button>
+      </div>
+    `).join('');
+
+    savedListEl.querySelectorAll('.kw-saved-item').forEach(itemEl => {
+      const idx = Number(itemEl.dataset.idx);
+      itemEl.querySelector('.kw-saved-load').addEventListener('click', () => {
+        const list2 = loadSavedList();
+        const item = list2[idx];
+        if (!item) return;
+        try {
+          applyAllSettings(item.data);
+          flashSettingsButton(loadBrowserBtn, '✓ 불러옴', '📂 저장 목록');
+        } catch (err) {
+          flashSettingsButton(loadBrowserBtn, '불러오기 실패', '📂 저장 목록');
+        }
+      });
+      itemEl.querySelector('.kw-saved-delete').addEventListener('click', () => {
+        const list2 = loadSavedList();
+        const item = list2[idx];
+        if (!item) return;
+        if (!confirm(`"${item.name}" 저장 항목을 삭제할까요?`)) return;
+        list2.splice(idx, 1);
+        saveSavedList(list2);
+        renderSavedList();
+      });
+    });
+  }
+
+  saveBrowserBtn.addEventListener('click', () => {
+    const list = loadSavedList();
+    const defaultName = `설정 ${list.length + 1} (${formatSavedDate(new Date().toISOString())})`;
+    const name = window.prompt('저장할 이름을 입력하세요 (여러 개를 이름으로 구분해 저장할 수 있습니다)', defaultName);
+    if (name === null) return; // 취소
+    const finalName = name.trim() || defaultName;
+
+    const existingIdx = list.findIndex(item => item.name === finalName);
+    if (existingIdx >= 0) {
+      if (!confirm(`"${finalName}" 이름으로 이미 저장된 설정이 있습니다. 덮어쓸까요?`)) return;
+    }
+
+    const entry = { name: finalName, savedAt: new Date().toISOString(), data: collectAllSettings() };
+    if (existingIdx >= 0) list[existingIdx] = entry;
+    else list.push(entry);
+
+    saveSavedList(list);
+    savedListEl.classList.remove('hidden');
+    renderSavedList();
+    flashSettingsButton(saveBrowserBtn, '✓ 저장됨', '💾 브라우저 저장');
   });
 
   loadBrowserBtn.addEventListener('click', () => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) { flashSettingsButton(loadBrowserBtn, '저장된 설정 없음', '📂 불러오기'); return; }
-    try {
-      applyAllSettings(JSON.parse(raw));
-      flashSettingsButton(loadBrowserBtn, '✓ 불러옴', '📂 불러오기');
-    } catch (err) {
-      flashSettingsButton(loadBrowserBtn, '불러오기 실패', '📂 불러오기');
+    const isHidden = savedListEl.classList.contains('hidden');
+    if (isHidden) {
+      renderSavedList();
+      savedListEl.classList.remove('hidden');
+    } else {
+      savedListEl.classList.add('hidden');
     }
   });
 

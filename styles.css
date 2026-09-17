@@ -76,6 +76,27 @@
     padding: 4px 8px; font-size: 0.7rem; font-weight: 700; cursor: pointer; white-space: nowrap;
   }
   .kw-settings-btn:hover { background: #eef1f3; border-color: #93c5fd; }
+  .kw-saved-list {
+    margin-top: 8px; margin-bottom: 10px; border: 1px solid #e2e8f0; border-radius: 8px;
+    background: #f8fafc; padding: 6px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .kw-saved-list .kw-saved-empty { font-size: 0.78rem; color: #94a3b8; padding: 8px; text-align: center; }
+  .kw-saved-item {
+    display: flex; align-items: center; gap: 8px; background: white; border: 1px solid #e2e8f0;
+    border-radius: 6px; padding: 6px 8px;
+  }
+  .kw-saved-item .kw-saved-name { font-size: 0.8rem; font-weight: 700; color: #0f172a; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kw-saved-item .kw-saved-date { font-size: 0.7rem; color: #94a3b8; flex: none; white-space: nowrap; }
+  .kw-saved-item .kw-saved-load {
+    flex: none; border: 1px solid #93c5fd; background: #eff6ff; color: #1d4ed8; border-radius: 6px;
+    padding: 3px 8px; font-size: 0.72rem; font-weight: 700; cursor: pointer;
+  }
+  .kw-saved-item .kw-saved-load:hover { background: #dbeafe; }
+  .kw-saved-item .kw-saved-delete {
+    flex: none; width: 22px; height: 22px; border: 1px solid #e2e8f0; background: white; border-radius: 6px;
+    color: #94a3b8; cursor: pointer; font-size: 12px; line-height: 1;
+  }
+  .kw-saved-item .kw-saved-delete:hover { background: #fee2e2; border-color: #ef4444; color: #ef4444; }
 
   .kw-hint { font-size: 0.72rem; color: #94a3b8; font-weight: 700; padding: 0 2px; margin-bottom: 6px; }
 
