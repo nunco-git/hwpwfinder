@@ -129,6 +129,12 @@
   }
   .reflect-kw:hover { background: #dbeafe; }
   .reflect-kw.active { background: #dcfce7; border-color: #86efac; color: #166534; }
+  .kw-exclude-input {
+    flex: 0 1 110px; min-width: 70px; border: 1px solid #fecaca; border-radius: 6px; padding: 4px 7px;
+    font-size: 0.72rem; font-family: inherit; background: #fff5f5; color: #7f1d1d;
+  }
+  .kw-exclude-input::placeholder { color: #b91c1c; opacity: 0.6; }
+  .kw-exclude-input:focus { outline: 2px solid #ef4444; outline-offset: 1px; }
   .kw-committed { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .kw-committed:empty { display: none; }
   .kw-chip {
@@ -367,6 +373,7 @@
           <input type="number" class="kw-count-input kw-count-table" min="1" max="20" value="${d.tableCount || 1}"> 칸
         </label>
       </div>
+      <input type="text" class="kw-exclude-input" placeholder="제외할 값(쉼표구분)" title="여기 입력한 값을 포함하는 추출 결과는 반영에서 제외합니다">
       <button type="button" class="reflect-kw" title="이 단어의 추출 결과를 엑셀 열로 반영">✔ 열에 반영</button>
       <button type="button" class="remove-kw" title="삭제">×</button>
     `;
@@ -376,8 +383,14 @@
       const kw = kwInput.value.trim();
       const reflectBtn = row.querySelector('.reflect-kw');
       if (!kw) { flashReflectButton(reflectBtn, '단어를 입력하세요'); return; }
-      const items = getResultItemsForKeyword(kw);
+      let items = getResultItemsForKeyword(kw);
       if (items.length === 0) { flashReflectButton(reflectBtn, '추출 결과 없음'); return; }
+      const excludeTerms = row.querySelector('.kw-exclude-input').value
+        .split(',').map(s => s.trim()).filter(s => s.length > 0);
+      if (excludeTerms.length > 0) {
+        items = items.filter(it => !excludeTerms.some(term => String(it.value).includes(term)));
+      }
+      if (items.length === 0) { flashReflectButton(reflectBtn, '제외 후 남은 값 없음'); return; }
       upsertCommittedColumn(kw, items);
       renderCommittedChips();
       updateReflectButtonStates();
