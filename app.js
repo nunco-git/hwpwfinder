@@ -15,7 +15,7 @@
   /* ---------- 단어 + 단어별 추출방식 행 (기본 6개, 2개씩 추가, 최대 20개) ---------- */
   function makeKeywordRow(defaults){
     const d = defaults || {
-      word: true, line: true, nextline: false, table: false,
+      word: false, line: false, nextline: false, table: false,
       wordOffset: 1, wordCount: 1, nextlineOffset: 1, nextlineCount: 1, tableOffset: 1, tableCount: 1
     };
     const row = document.createElement('div');
