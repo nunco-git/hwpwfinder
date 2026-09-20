@@ -745,30 +745,69 @@
   // items(줄 또는 표 식별자를 가진 결과 목록)를 keywords 순서대로 칼럼화한 { headers, dataRows }로 변환.
   // 통합 결과(자동)와 반영된 열 병합(수동) 둘 다 이 함수를 공유한다.
   //
-  // [수정] 예전에는 줄 번호/표 위치(식별자)가 정확히 같은 결과끼리만 한 행으로 묶었다.
-  // 그런데 실제 문서에서는 "문서번호", "작성일", "담당자"처럼 찾는 값들이 서로 다른 줄에
-  // 있는 경우가 대부분이라 식별자가 거의 겹치지 않았고, 그 결과 값들이 전부 다른 행으로
-  // 흩어져서(각 행에 한 칸만 채워짐) 병합이 전혀 안 되는 것처럼 보이는 문제가 있었다.
-  // 이제는 줄/표 위치가 같은지 따지지 않고, 각 단어에서 뽑힌 값을 "문서에 나온 순서" 그대로
-  // 다른 단어들과 나란히 배치한다(각 단어의 n번째 값끼리 같은 행에 놓임). 이렇게 하면 값이
-  // 어느 줄/표에 있었는지와 무관하게 항상 옆 칸에 누적되어 채워진다.
+  // [수정 이력]
+  // 1차: 예전에는 줄 번호/표 위치(식별자)가 정확히 같은 결과끼리만 한 행으로 묶었다. 그런데
+  //      "문서번호", "작성일", "담당자"처럼 문서 전체에 한 번씩만 나오는 값들은 서로 다른 줄에
+  //      있어서 식별자가 안 겹쳤고, 그 결과 값들이 전부 다른 행으로 흩어졌다(병합이 전혀 안
+  //      되는 것처럼 보임). 그래서 식별자를 무시하고 "나온 순서대로" 옆 칸에 나란히 배치하도록
+  //      바꿨다.
+  // 2차(이번 수정): 그런데 표에서 여러 행(레코드)을 반복 추출하는 경우, 중간의 한 레코드에서
+  //      특정 단어를 못 찾으면(예: 3명 중 2번째 사람의 "부서" 칸이 비어있음) 순서 기반 배치는
+  //      그 다음 레코드의 값을 앞으로 당겨버려서 이후 모든 행이 한 칸씩 밀리는 문제가 있었다.
+  //      그래서 이제는 두 가지를 상황에 따라 자동으로 구분한다:
+  //      - 모든 단어가 문서에서 많아야 한 번만 발견된 경우 → 식별자를 무시하고 한 행으로 병합
+  //        (1차 수정과 동일, "문서번호/작성일/담당자" 같은 단발성 필드용)
+  //      - 하나라도 여러 번(표의 여러 행 등) 발견된 경우 → 줄 번호/표 위치(식별자)가 같은
+  //        결과끼리 하나의 레코드로 묶는다. 이렇게 하면 특정 레코드에서 어떤 단어를 못 찾아도
+  //        그 칸만 빈값으로 남고, 다른 레코드의 값이 밀려 들어오지 않는다.
   function buildWideFromItems(items, keywords){
     const byKeyword = new Map();
     keywords.forEach(kw => byKeyword.set(kw, []));
     items.forEach(it => {
       if (!byKeyword.has(it.keyword)) byKeyword.set(it.keyword, []);
-      byKeyword.get(it.keyword).push(it.value);
+      byKeyword.get(it.keyword).push(it);
     });
 
     const maxLen = keywords.reduce((m, kw) => Math.max(m, byKeyword.get(kw).length), 0);
     const headers = [...keywords];
-    const dataRows = [];
-    for (let i = 0; i < maxLen; i++) {
-      dataRows.push(keywords.map(kw => {
-        const vals = byKeyword.get(kw);
-        return vals[i] !== undefined ? vals[i] : '';
-      }));
+
+    if (maxLen <= 1) {
+      // 모든 단어가 문서에 많아야 한 번씩만 나온 경우: 줄/표 위치가 달라도 상관없이 한 행으로 합친다.
+      const row = keywords.map(kw => {
+        const arr = byKeyword.get(kw);
+        return arr.length > 0 ? arr[0].value : '';
+      });
+      return { headers, dataRows: [row] };
     }
+
+    // 하나라도 여러 번 발견된 경우: 같은 줄 번호/표 위치(식별자)를 하나의 레코드로 보고 묶는다.
+    // 이 레코드 안에서 특정 단어가 없으면(못 찾았으면) 그 칸은 빈 값('')으로 남긴다.
+    const idKey = (it) => it.idType + ':' + it.id.join('-');
+    const groups = new Map();
+    const order = [];
+    items.forEach(it => {
+      const key = idKey(it);
+      if (!groups.has(key)) { groups.set(key, { idType: it.idType, id: it.id, values: {} }); order.push(key); }
+      const g = groups.get(key);
+      if (g.values[it.keyword] === undefined) g.values[it.keyword] = it.value;
+    });
+
+    // 문서에 나온 순서(표 번호→행 번호, 또는 줄 번호)대로 행을 정렬한다.
+    order.sort((ka, kb) => {
+      const a = groups.get(ka), b = groups.get(kb);
+      if (a.idType !== b.idType) return a.idType === 'table' ? 1 : -1;
+      const len = Math.max(a.id.length, b.id.length);
+      for (let i = 0; i < len; i++) {
+        const av = a.id[i] || 0, bv = b.id[i] || 0;
+        if (av !== bv) return av - bv;
+      }
+      return 0;
+    });
+
+    const dataRows = order.map(key => {
+      const g = groups.get(key);
+      return keywords.map(kw => (g.values[kw] !== undefined ? g.values[kw] : ''));
+    });
     return { headers, dataRows };
   }
 
