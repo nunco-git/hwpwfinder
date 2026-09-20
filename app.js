@@ -740,31 +740,31 @@
 
   // items(줄 또는 표 식별자를 가진 결과 목록)를 keywords 순서대로 칼럼화한 { headers, dataRows }로 변환.
   // 통합 결과(자동)와 반영된 열 병합(수동) 둘 다 이 함수를 공유한다.
+  //
+  // [수정] 예전에는 줄 번호/표 위치(식별자)가 정확히 같은 결과끼리만 한 행으로 묶었다.
+  // 그런데 실제 문서에서는 "문서번호", "작성일", "담당자"처럼 찾는 값들이 서로 다른 줄에
+  // 있는 경우가 대부분이라 식별자가 거의 겹치지 않았고, 그 결과 값들이 전부 다른 행으로
+  // 흩어져서(각 행에 한 칸만 채워짐) 병합이 전혀 안 되는 것처럼 보이는 문제가 있었다.
+  // 이제는 줄/표 위치가 같은지 따지지 않고, 각 단어에서 뽑힌 값을 "문서에 나온 순서" 그대로
+  // 다른 단어들과 나란히 배치한다(각 단어의 n번째 값끼리 같은 행에 놓임). 이렇게 하면 값이
+  // 어느 줄/표에 있었는지와 무관하게 항상 옆 칸에 누적되어 채워진다.
   function buildWideFromItems(items, keywords){
-    const hasLine = items.some(it => it.idType === 'line');
-    const hasTable = items.some(it => it.idType === 'table');
-    const mixed = hasLine && hasTable;
-
-    const idLabels = mixed ? ['구분', '식별자'] : (hasTable ? ['표 번호', '행 번호'] : ['줄 번호']);
-    function idValues(it){
-      if (mixed) return [it.idType === 'table' ? '표' : '줄', it.idType === 'table' ? `표${it.id[0]}-행${it.id[1]}` : `${it.id[0]}줄`];
-      return it.id;
-    }
-    function idKey(it){ return it.idType + ':' + it.id.join('-'); }
-
-    const groups = new Map();
-    const order = [];
+    const byKeyword = new Map();
+    keywords.forEach(kw => byKeyword.set(kw, []));
     items.forEach(it => {
-      const key = idKey(it);
-      if (!groups.has(key)) { groups.set(key, { idVals: idValues(it), values: {} }); order.push(key); }
-      const g = groups.get(key);
-      if (g.values[it.keyword] === undefined) g.values[it.keyword] = it.value;
+      if (!byKeyword.has(it.keyword)) byKeyword.set(it.keyword, []);
+      byKeyword.get(it.keyword).push(it.value);
     });
-    const headers = [...idLabels, ...keywords];
-    const dataRows = order.map(key => {
-      const g = groups.get(key);
-      return [...g.idVals, ...keywords.map(kw => (g.values[kw] !== undefined ? g.values[kw] : ''))];
-    });
+
+    const maxLen = keywords.reduce((m, kw) => Math.max(m, byKeyword.get(kw).length), 0);
+    const headers = [...keywords];
+    const dataRows = [];
+    for (let i = 0; i < maxLen; i++) {
+      dataRows.push(keywords.map(kw => {
+        const vals = byKeyword.get(kw);
+        return vals[i] !== undefined ? vals[i] : '';
+      }));
+    }
     return { headers, dataRows };
   }
 
