@@ -196,6 +196,13 @@
   let lastModeFlags = { word: false, line: false, nextline: false, table: false };
   let hwpxTables = null;
   let currentFileType = null; // 'hwpx' | 'pdf' | null
+  // [쪽 번호 색인] 결과마다 "몇 쪽에서 찾았는지"를 함께 기록해서, 같은 쪽의 값끼리 한 행으로 맞춘다.
+  let linePages = [];          // linePages[i] = (i+1)번째 줄이 속한 쪽 번호(1부터)
+  let hwpxTableMeta = null;    // hwpxTables와 같은 순서: [{ page, rowLines: [행마다 문서 전체 기준 줄 번호] }]
+  let pagesDetected = false;   // 쪽 번호를 얻을 수 있었는지 (PDF는 항상, HWPX는 문서에 배치 정보가 있을 때)
+  const pageModeEl = document.getElementById('page-mode');
+  function pageMode(){ return !pageModeEl || pageModeEl.checked; }
+  function pageOfLine(lineNo){ return pagesDetected ? (linePages[lineNo - 1] || 1) : 1; }
   let activeTab = 'kw-1';
   let committedColumns = []; // [{ keyword, items: [{idType, id, keyword, value}, ...] }] — "열에 반영"으로 확정된 단어들
 
@@ -260,6 +267,13 @@
     });
   });
 
+  if (pageModeEl) {
+    pageModeEl.addEventListener('change', () => {
+      renderAggTable(lastKeywords);
+      if (activeTab === 'agg') updateCount();
+    });
+  }
+
   /* ---------- 파일 업로드 / 드래그앤드롭 (.hwpx / .pdf) ---------- */
   dropZone.addEventListener('click', () => fileInput.click());
   dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('highlight'); });
@@ -279,6 +293,7 @@
     const buf = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
     const lines = [];
+    const pageOfLineArr = [];
     for (let p = 1; p <= pdf.numPages; p++) {
       const page = await pdf.getPage(p);
       const content = await page.getTextContent();
@@ -293,13 +308,13 @@
       rowGroups.sort((a, b) => b.y - a.y);
       rowGroups.forEach(g => {
         const text = g.items.sort((a, b) => a.x - b.x).map(i => i.str).join(' ').replace(/\s+/g, ' ').trim();
-        if (text) lines.push(text);
+        if (text) { lines.push(text); pageOfLineArr.push(p); }
       });
     }
     if (lines.length === 0) {
       throw new Error('텍스트를 찾을 수 없습니다. 스캔본(이미지) PDF는 지원되지 않습니다.');
     }
-    return lines.join('\n');
+    return { text: lines.join('\n'), linePages: pageOfLineArr, pageCount: pdf.numPages };
   }
 
   async function handleFile(file){
@@ -321,6 +336,9 @@
 
     runBtn.disabled = true;
     hwpxTables = null;
+    hwpxTableMeta = null;
+    linePages = [];
+    pagesDetected = false;
     currentFileType = null;
 
     try {
@@ -329,16 +347,28 @@
         const result = await extractHwpxText(file);
         extractedText = result.text;
         hwpxTables = result.tables;
+        hwpxTableMeta = result.tableMeta;
+        linePages = result.linePages;
+        pagesDetected = result.pagesDetected;
         currentFileType = 'hwpx';
-        fileStatus.textContent = `"${file.name}" 불러옴 (표 ${result.tables.length}개 인식됨)`;
+        const pageNote = result.pagesDetected
+          ? `, 쪽 ${result.pageCount}개로 추정`
+          : ', 쪽 정보를 찾지 못해 전체를 1쪽으로 처리';
+        fileStatus.textContent = `"${file.name}" 불러옴 (표 ${result.tables.length}개 인식됨${pageNote})`;
       } else if (isPdf) {
         fileStatus.textContent = `"${file.name}" 에서 텍스트를 추출하는 중...`;
-        extractedText = await extractPdfText(file);
+        const pdfResult = await extractPdfText(file);
+        extractedText = pdfResult.text;
+        linePages = pdfResult.linePages;
+        pagesDetected = true;
         currentFileType = 'pdf';
-        fileStatus.textContent = `"${file.name}" 불러옴 (PDF 텍스트 · 표 옆칸 추출은 지원되지 않음)`;
+        fileStatus.textContent = `"${file.name}" 불러옴 (PDF ${pdfResult.pageCount}쪽 · 표 옆칸 추출은 지원되지 않음)`;
       }
     } catch (err) {
       hwpxTables = null;
+      hwpxTableMeta = null;
+      linePages = [];
+      pagesDetected = false;
       extractedText = '';
       currentFileType = null;
       fileStatus.textContent = '파일을 처리하는 중 오류: ' + err.message;
@@ -352,6 +382,9 @@
     extractedText = '';
     fileInput.value = '';
     hwpxTables = null;
+    hwpxTableMeta = null;
+    linePages = [];
+    pagesDetected = false;
     currentFileType = null;
     fileStatus.textContent = '아직 불러온 파일이 없습니다.';
 
@@ -362,6 +395,7 @@
 
     document.querySelector('input[name="agg-format"][value="wide"]').checked = true;
     aggFormat = 'wide';
+    if (pageModeEl) pageModeEl.checked = true;
 
     wordResults = []; lineResults = []; nextLineResults = []; tableResults = [];
     aggRows = []; aggSource = null; lastKeywords = [];
@@ -382,8 +416,12 @@
     return cur;
   }
 
-  function parseTable(tblNode){
+  // 반환: { rows, rowLines } — rowLines[i]는 i번째 행의 첫 글자가 있는 문단의 "문서 전체 기준 줄 번호".
+  // 표 결과와 일반 줄 결과가 같은 좌표(줄 번호)로 순서를 비교할 수 있게 해준다.
+  function parseTable(tblNode, paraInfo){
     const rows = [];
+    const rowLines = [];
+    let lastLine = 0;
     const trNodes = tblNode.getElementsByTagName('hp:tr');
     for (let ri = 0; ri < trNodes.length; ri++) {
       const tr = trNodes[ri];
@@ -403,9 +441,21 @@
         }
         cells.push(cellText.trim());
       }
-      if (cells.length > 0) rows.push(cells);
+      if (cells.length > 0) {
+        let lineNo = 0;
+        const rowT = tr.getElementsByTagName('hp:t');
+        for (let k = 0; k < rowT.length && !lineNo; k++) {
+          const p = closestByTag(rowT[k], 'hp:p');
+          const info = p && paraInfo.get(p);
+          if (info) lineNo = info.lineNo;
+        }
+        if (!lineNo) lineNo = lastLine;
+        lastLine = lineNo || lastLine;
+        rows.push(cells);
+        rowLines.push(lineNo);
+      }
     }
-    return rows;
+    return { rows, rowLines };
   }
 
   async function extractHwpxText(file){
@@ -437,7 +487,19 @@
     }
 
     const lines = [];
+    const linePagesOut = [];
     const tables = [];
+    const tableMeta = [];
+
+    // [쪽 번호 추정] HWPX 파일에는 "몇 쪽"이라는 값이 직접 들어있지 않다(쪽 나눔은 한글 프로그램이 화면에서
+    // 계산한다). 대신 파일에 남아있는 배치 정보로 추정한다.
+    //  - 구역(section)이 바뀌면 새 쪽
+    //  - 문단의 pageBreak="1" 이면 새 쪽(강제 쪽 나눔)
+    //  - 최상위 문단의 줄 위치(lineseg vertpos)가 직전보다 작아지면 새 쪽(쪽 위쪽으로 되돌아간 것)
+    // 표 안 문단은 그 표를 담은 최상위 문단의 쪽을 따른다.
+    let pageNo = 1;
+    let sawLayout = false;  // vertpos나 pageBreak를 하나라도 발견했는지
+    let sectionIdx = 0;
 
     for (const name of sectionFiles) {
       const xmlStr = await zip.files[name].async('string');
@@ -446,6 +508,39 @@
         throw new Error('본문 XML을 해석할 수 없습니다.');
       }
 
+      if (sectionIdx > 0) pageNo++;
+      sectionIdx++;
+
+      // (1) 최상위 문단(다른 문단 안에 들어있지 않은 문단)마다 시작 쪽 번호를 매긴다.
+      const topPage = new Map();
+      let lastVert = null;
+      let firstPara = true;
+      const allP = doc.getElementsByTagName('hp:p');
+      for (let i = 0; i < allP.length; i++) {
+        const p = allP[i];
+        if (closestByTag(p, 'hp:p')) continue;
+
+        if (!firstPara && p.getAttribute('pageBreak') === '1') { pageNo++; lastVert = null; sawLayout = true; }
+        firstPara = false;
+
+        let pageAtStart = pageNo;
+        let firstSeg = true;
+        for (let c = p.firstChild; c; c = c.nextSibling) {
+          if (c.nodeType !== 1 || c.tagName !== 'hp:linesegarray') continue;
+          const segs = c.getElementsByTagName('hp:lineseg');
+          for (let s = 0; s < segs.length; s++) {
+            const vp = parseInt(segs[s].getAttribute('vertpos'), 10);
+            if (!Number.isFinite(vp)) continue;
+            sawLayout = true;
+            if (lastVert !== null && vp < lastVert) pageNo++;
+            if (firstSeg) { pageAtStart = pageNo; firstSeg = false; }
+            lastVert = vp;
+          }
+        }
+        topPage.set(p, pageAtStart);
+      }
+
+      // (2) 문단 → 줄. 각 줄에 쪽 번호를 붙이고, 문단의 첫 줄 번호를 paraInfo에 기록해둔다.
       const tNodes = doc.getElementsByTagName('hp:t');
       const paraMap = new Map();
       for (let i = 0; i < tNodes.length; i++) {
@@ -455,18 +550,29 @@
         if (!paraMap.has(node)) paraMap.set(node, []);
         paraMap.get(node).push(t.textContent);
       }
-      for (const parts of paraMap.values()) {
-        lines.push(parts.join(''));
+      const paraInfo = new Map();
+      for (const [node, parts] of paraMap) {
+        let top = node;
+        for (let cur = node.parentNode; cur; cur = cur.parentNode) if (cur.tagName === 'hp:p') top = cur;
+        const page = topPage.get(top) || pageNo;
+        const startLine = lines.length + 1;
+        parts.join('').split(/\r\n|\r|\n/).forEach(seg => { lines.push(seg); linePagesOut.push(page); });
+        paraInfo.set(node, { lineNo: startLine, page });
       }
 
+      // (3) 표
       const tblNodes = doc.getElementsByTagName('hp:tbl');
       for (let ti = 0; ti < tblNodes.length; ti++) {
-        const rows = parseTable(tblNodes[ti]);
-        if (rows.length > 0) tables.push(rows);
+        const parsed = parseTable(tblNodes[ti], paraInfo);
+        if (parsed.rows.length === 0) continue;
+        let holder = null;
+        for (let cur = tblNodes[ti].parentNode; cur; cur = cur.parentNode) if (cur.tagName === 'hp:p') holder = cur;
+        tables.push(parsed.rows);
+        tableMeta.push({ page: (holder && topPage.get(holder)) || pageNo, rowLines: parsed.rowLines });
       }
     }
 
-    return { text: lines.join('\n'), tables };
+    return { text: lines.join('\n'), tables, tableMeta, linePages: linePagesOut, pagesDetected: sawLayout, pageCount: pageNo };
   }
 
   /* ---------- 탭 전환 (단어 위치별 동적 탭) ---------- */
@@ -517,10 +623,11 @@
     }
 
     const rows = [];
-    wordResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '뒤 단어', loc: `${r.lineNo}줄`, value: r.next }));
-    lineResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '해당 줄', loc: `${r.lineNo}줄`, value: r.line }));
-    nextLineResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '다음 줄', loc: `${r.lineNo}줄`, value: r.nextLine }));
-    tableResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '표 옆칸', loc: `표${r.tableNo}-행${r.rowNo}`, value: r.next }));
+    const pg = (r) => pagesDetected ? `${r.page}쪽 · ` : '';
+    wordResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '뒤 단어', loc: `${pg(r)}${r.lineNo}줄`, value: r.next }));
+    lineResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '해당 줄', loc: `${pg(r)}${r.lineNo}줄`, value: r.line }));
+    nextLineResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '다음 줄', loc: `${pg(r)}${r.lineNo}줄`, value: r.nextLine }));
+    tableResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '표 옆칸', loc: `${pg(r)}표${r.tableNo}-행${r.rowNo}`, value: r.next }));
 
     if (rows.length === 0) {
       kwPreviewView.innerHTML = `<div class="empty">"${escapeHtml(keyword)}"의 추출 결과가 없습니다. 이 위치의 "추출하기"를 눌러주세요.</div>`;
@@ -630,7 +737,7 @@
             const start = i + rowData.wordOffset;
             const nextTokens = tokens.slice(start, start + rowData.wordCount);
             if (nextTokens.length > 0) {
-              wordResults.push({ lineNo, keyword, found: tokens[i], next: nextTokens.join(' ') });
+              wordResults.push({ lineNo, page: pageOfLine(lineNo), keyword, found: tokens[i], next: nextTokens.join(' ') });
             }
           }
         }
@@ -638,7 +745,7 @@
 
       if (rowData.line && line.includes(keyword)) {
         const matchCount = tokens.filter(t => t === keyword).length || (line.split(keyword).length - 1);
-        lineResults.push({ lineNo, keyword, matchCount, line });
+        lineResults.push({ lineNo, page: pageOfLine(lineNo), keyword, matchCount, line });
       }
 
       if (rowData.nextline && line.includes(keyword)) {
@@ -646,7 +753,7 @@
         const start = lineIdx + rowData.nextlineOffset;
         const nextChunk = lines.slice(start, start + rowData.nextlineCount).join('\n');
         if (nextChunk.length > 0) {
-          nextLineResults.push({ lineNo, keyword, matchCount, nextLine: nextChunk });
+          nextLineResults.push({ lineNo, page: pageOfLine(lineNo), keyword, matchCount, nextLine: nextChunk });
         }
       }
     });
@@ -654,12 +761,17 @@
     if (rowData.table) {
       if (hwpxTables && hwpxTables.length > 0) {
         hwpxTables.forEach((rows, tIdx) => {
+          const meta = hwpxTableMeta && hwpxTableMeta[tIdx];
           rows.forEach((cells, rIdx) => {
             for (let c = 0; c < cells.length; c++) {
               if (cells[c].includes(keyword)) {
                 const nextCells = collectDirectionalCells(rows, cells, rIdx, c, rowData.tableDirection, rowData.tableOffset, rowData.tableCount, rowData.tableStopWord);
                 if (nextCells.length > 0) {
-                  tableResults.push({ tableNo: tIdx + 1, rowNo: rIdx + 1, keyword, found: cells[c], next: nextCells.join(' / ') });
+                  tableResults.push({
+                    tableNo: tIdx + 1, rowNo: rIdx + 1, keyword, found: cells[c], next: nextCells.join(' / '),
+                    page: (pagesDetected && meta) ? meta.page : 1,
+                    pos: (meta && meta.rowLines[rIdx]) || (tIdx * 1000 + rIdx + 1)
+                  });
                 }
               }
             }
@@ -722,24 +834,86 @@
   });
 
   // 통합 결과의 원본: 뒤 단어 / 해당 줄 / 다음 줄 / 표 옆칸 네 가지 결과를 모두 하나의 목록으로 합친다.
-  // idType이 'line'이면 줄 번호로, 'table'이면 (표 번호, 행 번호)로 같은 레코드를 묶는다.
-  function setAggSource(){
+  // 모든 항목에는 찾은 쪽(page)과 문서 안에서의 순서(pos = 문서 전체 기준 줄 번호)가 붙는다.
+  // keywordFilter가 있으면 그 단어의 결과만 뽑는다("열에 반영" 버튼이 사용).
+  function makeItems(keywordFilter){
+    const ok = (kw) => keywordFilter == null || kw === keywordFilter;
     const items = [];
-    wordResults.forEach(it => items.push({ idType: 'line', id: [it.lineNo], keyword: it.keyword, value: it.next }));
-    lineResults.forEach(it => items.push({ idType: 'line', id: [it.lineNo], keyword: it.keyword, value: it.line }));
-    nextLineResults.forEach(it => items.push({ idType: 'line', id: [it.lineNo], keyword: it.keyword, value: it.nextLine }));
-    tableResults.forEach(it => items.push({ idType: 'table', id: [it.tableNo, it.rowNo], keyword: it.keyword, value: it.next }));
+    wordResults.forEach(it => { if (ok(it.keyword)) items.push({ idType: 'line', id: [it.lineNo], page: it.page, pos: it.lineNo, keyword: it.keyword, value: it.next }); });
+    lineResults.forEach(it => { if (ok(it.keyword)) items.push({ idType: 'line', id: [it.lineNo], page: it.page, pos: it.lineNo, keyword: it.keyword, value: it.line }); });
+    nextLineResults.forEach(it => { if (ok(it.keyword)) items.push({ idType: 'line', id: [it.lineNo], page: it.page, pos: it.lineNo, keyword: it.keyword, value: it.nextLine }); });
+    tableResults.forEach(it => { if (ok(it.keyword)) items.push({ idType: 'table', id: [it.tableNo, it.rowNo], page: it.page, pos: it.pos, keyword: it.keyword, value: it.next }); });
+    return items;
+  }
+
+  function setAggSource(){
+    const items = makeItems(null);
     aggSource = items.length > 0 ? { items } : null;
   }
 
-  // 특정 키워드가 (현재 run 결과 안에서) 만들어낸 항목들만 뽑아온다 — "열에 반영" 버튼이 사용.
   function getResultItemsForKeyword(keyword){
-    const items = [];
-    wordResults.forEach(it => { if (it.keyword === keyword) items.push({ idType: 'line', id: [it.lineNo], keyword: it.keyword, value: it.next }); });
-    lineResults.forEach(it => { if (it.keyword === keyword) items.push({ idType: 'line', id: [it.lineNo], keyword: it.keyword, value: it.line }); });
-    nextLineResults.forEach(it => { if (it.keyword === keyword) items.push({ idType: 'line', id: [it.lineNo], keyword: it.keyword, value: it.nextLine }); });
-    tableResults.forEach(it => { if (it.keyword === keyword) items.push({ idType: 'table', id: [it.tableNo, it.rowNo], keyword: it.keyword, value: it.next }); });
-    return items;
+    return makeItems(keyword);
+  }
+
+  // [쪽 기준 정렬] 같은 쪽에서 찾은 값끼리 한 행으로 묶는다.
+  //  - 어떤 쪽에 특정 단어의 값이 없으면 그 칸만 비워둔다. 다른 쪽의 값이 끌려와서 한 칸씩 밀리는 일이 없다.
+  //  - 값이 하나도 없는 쪽은 행이 만들어지지 않는다(건너뜀).
+  //  - 한 쪽 안에 같은 단어가 여러 번 나오면(한 쪽에 여러 건이 있는 문서) 그 쪽 안에서만
+  //    "가장 많이 나온 단어"를 기준으로 건을 나눈다(쪽을 넘나들며 밀리지 않는다).
+  //  - 문서 전체에서 모든 단어가 많아야 한 번씩만 나오면(문서번호·작성일처럼 한 번씩만 있는 값들) 쪽이 달라도 한 행.
+  // 반환: { dataRows, pages } (pages[i] = i번째 행이 속한 쪽)
+  function alignByPage(byKeyword, keywords){
+    const listOf = (kw) => byKeyword.get(kw) || [];
+    const totalMax = keywords.reduce((m, kw) => Math.max(m, listOf(kw).length), 0);
+    if (totalMax === 0) return { dataRows: [], pages: [] };
+
+    if (totalMax === 1) {
+      const firsts = keywords.map(kw => listOf(kw)[0]);
+      const row = firsts.map(it => it ? it.value : '');
+      const pg = Math.min(...firsts.filter(Boolean).map(it => it.page));
+      return { dataRows: [row], pages: [pg] };
+    }
+
+    const pageSet = new Set();
+    keywords.forEach(kw => listOf(kw).forEach(it => pageSet.add(it.page)));
+    const pageList = [...pageSet].sort((a, b) => a - b);
+
+    const dataRows = [];
+    const pages = [];
+    pageList.forEach(pg => {
+      const perKw = keywords.map(kw => listOf(kw).filter(it => it.page === pg).sort((a, b) => a.pos - b.pos));
+      const maxLen = perKw.reduce((m, a) => Math.max(m, a.length), 0);
+      if (maxLen === 0) return;
+
+      if (maxLen === 1) {
+        dataRows.push(perKw.map(a => a.length ? a[0].value : ''));
+        pages.push(pg);
+        return;
+      }
+
+      let anchor = 0;
+      perKw.forEach((a, i) => { if (a.length > perKw[anchor].length) anchor = i; });
+      const bounds = perKw[anchor].map(it => it.pos);
+      const recs = bounds.map(() => keywords.map(() => ''));
+      perKw[anchor].forEach((it, i) => { recs[i][anchor] = it.value; });
+      perKw.forEach((arr, ci) => {
+        if (ci === anchor) return;
+        arr.forEach(it => {
+          let idx = 0;
+          for (let i = 0; i < bounds.length; i++) { if (it.pos >= bounds[i]) idx = i; else break; }
+          if (recs[idx][ci] === '') recs[idx][ci] = it.value;
+        });
+      });
+      recs.forEach(r => { dataRows.push(r); pages.push(pg); });
+    });
+    return { dataRows, pages };
+  }
+
+  // 쪽 기준으로 만든 표에는 맨 오른쪽에 "쪽" 열을 붙여 어느 쪽에서 나온 행인지 확인할 수 있게 한다.
+  // (왼쪽 열 번호는 "엑셀파일 N열에 반영" 표시와 맞아야 해서 오른쪽 끝에 둔다.)
+  function appendPageColumn(agg){
+    if (!agg || !agg.pages || !pagesDetected) return agg;
+    return { headers: [...agg.headers, '쪽'], dataRows: agg.dataRows.map((r, i) => [...r, agg.pages[i]]) };
   }
 
   // items(줄 또는 표 식별자를 가진 결과 목록)를 keywords 순서대로 칼럼화한 { headers, dataRows }로 변환.
@@ -778,6 +952,11 @@
 
     const maxLen = keywords.reduce((m, kw) => Math.max(m, byKeyword.get(kw).length), 0);
     const headers = [...keywords];
+
+    if (pageMode()) {
+      const r = alignByPage(byKeyword, keywords);
+      return { headers, dataRows: r.dataRows, pages: r.pages };
+    }
 
     if (maxLen <= 1) {
       // 모든 단어가 문서에 많아야 한 번씩만 나온 경우: 줄/표 위치가 달라도 상관없이 한 행으로 합친다.
@@ -845,12 +1024,13 @@
         if (mixed) return [it.idType === 'table' ? '표' : '줄', it.idType === 'table' ? `표${it.id[0]}-행${it.id[1]}` : `${it.id[0]}줄`];
         return it.id;
       }
-      const headers = [...idLabels, '검색어', '값'];
-      const dataRows = items.map(it => [...idValues(it), it.keyword, it.value]);
+      const withPage = pagesDetected;
+      const headers = [...(withPage ? ['쪽'] : []), ...idLabels, '검색어', '값'];
+      const dataRows = items.map(it => [...(withPage ? [it.page] : []), ...idValues(it), it.keyword, it.value]);
       return { headers, dataRows };
     }
 
-    return buildWideFromItems(items, keywords);
+    return appendPageColumn(buildWideFromItems(items, keywords));
   }
 
   /* ---------- 엑셀 열에 반영 (수동 병합) ---------- */
@@ -893,6 +1073,13 @@
   function computeCommittedMerge(){
     if (committedColumns.length === 0) return null;
     const keywords = committedColumns.map(c => c.keyword);
+
+    if (pageMode()) {
+      const byKeyword = new Map(committedColumns.map(c => [c.keyword, c.items]));
+      const r = alignByPage(byKeyword, keywords);
+      return appendPageColumn({ headers: keywords, dataRows: r.dataRows, pages: r.pages });
+    }
+
     const maxLen = Math.max(...committedColumns.map(c => c.items.length));
     const dataRows = [];
     for (let i = 0; i < maxLen; i++) {
@@ -999,37 +1186,41 @@
       added = true;
     } else {
       if (wordResults.length > 0) {
-        const rows = [['번호', '줄 번호', '검색어', '찾은 단어', '바로 다음 단어']];
-        wordResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
+        const P = pagesDetected;
+        const rows = [['번호', ...(P ? ['쪽'] : []), '줄 번호', '검색어', '찾은 단어', '바로 다음 단어']];
+        wordResults.forEach((r, i) => rows.push([i + 1, ...(P ? [r.page] : []), r.lineNo, r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
         const ws = XLSX.utils.aoa_to_sheet(rows);
-        ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:16},{wch:24}];
+        ws['!cols'] = [{wch:6}, ...(P ? [{wch:6}] : []), {wch:8},{wch:14},{wch:16},{wch:24}];
         XLSX.utils.book_append_sheet(wb, ws, '뒤 단어 결과');
         added = true;
       }
 
       if (lineResults.length > 0) {
-        const rows = [['번호', '줄 번호', '검색어', '일치 횟수', '해당 줄 전체']];
-        lineResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, r.matchCount, sanitizeCell(r.line)]));
+        const P = pagesDetected;
+        const rows = [['번호', ...(P ? ['쪽'] : []), '줄 번호', '검색어', '일치 횟수', '해당 줄 전체']];
+        lineResults.forEach((r, i) => rows.push([i + 1, ...(P ? [r.page] : []), r.lineNo, r.keyword, r.matchCount, sanitizeCell(r.line)]));
         const ws = XLSX.utils.aoa_to_sheet(rows);
-        ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:10},{wch:70}];
+        ws['!cols'] = [{wch:6}, ...(P ? [{wch:6}] : []), {wch:8},{wch:14},{wch:10},{wch:70}];
         XLSX.utils.book_append_sheet(wb, ws, '해당 줄 결과');
         added = true;
       }
 
       if (nextLineResults.length > 0) {
-        const rows = [['번호', '줄 번호', '검색어', '일치 횟수', '다음 줄 전체']];
-        nextLineResults.forEach((r, i) => rows.push([i + 1, r.lineNo, r.keyword, r.matchCount, sanitizeCell(r.nextLine)]));
+        const P = pagesDetected;
+        const rows = [['번호', ...(P ? ['쪽'] : []), '줄 번호', '검색어', '일치 횟수', '다음 줄 전체']];
+        nextLineResults.forEach((r, i) => rows.push([i + 1, ...(P ? [r.page] : []), r.lineNo, r.keyword, r.matchCount, sanitizeCell(r.nextLine)]));
         const ws = XLSX.utils.aoa_to_sheet(rows);
-        ws['!cols'] = [{wch:6},{wch:8},{wch:14},{wch:10},{wch:70}];
+        ws['!cols'] = [{wch:6}, ...(P ? [{wch:6}] : []), {wch:8},{wch:14},{wch:10},{wch:70}];
         XLSX.utils.book_append_sheet(wb, ws, '다음 줄 결과');
         added = true;
       }
 
       if (tableResults.length > 0) {
-        const rows = [['번호', '표 번호', '행 번호', '검색어', '찾은 칸', '옆 칸 값']];
-        tableResults.forEach((r, i) => rows.push([i + 1, r.tableNo, r.rowNo, r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
+        const P = pagesDetected;
+        const rows = [['번호', ...(P ? ['쪽'] : []), '표 번호', '행 번호', '검색어', '찾은 칸', '옆 칸 값']];
+        tableResults.forEach((r, i) => rows.push([i + 1, ...(P ? [r.page] : []), r.tableNo, r.rowNo, r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
         const ws = XLSX.utils.aoa_to_sheet(rows);
-        ws['!cols'] = [{wch:6},{wch:8},{wch:8},{wch:14},{wch:20},{wch:24}];
+        ws['!cols'] = [{wch:6}, ...(P ? [{wch:6}] : []), {wch:8},{wch:8},{wch:14},{wch:20},{wch:24}];
         XLSX.utils.book_append_sheet(wb, ws, '표 옆칸 결과');
         added = true;
       }
@@ -1086,7 +1277,7 @@
   function collectAllSettings(){
     const rows = [...keywordList.querySelectorAll('.keyword-row')].map(getRowData);
     const aggRadio = document.querySelector('input[name="agg-format"]:checked');
-    return { version: 1, aggFormat: aggRadio ? aggRadio.value : 'wide', rows };
+    return { version: 1, aggFormat: aggRadio ? aggRadio.value : 'wide', pageMode: pageMode(), rows };
   }
 
   // 저장된 데이터로 단어 목록·모드·통합 결과 형식을 되살린다.
@@ -1105,6 +1296,7 @@
     const radio = document.querySelector(`input[name="agg-format"][value="${fmt}"]`);
     if (radio) radio.checked = true;
     aggFormat = fmt;
+    if (pageModeEl) pageModeEl.checked = settings.pageMode !== false;
   }
 
   function loadSavedList(){
