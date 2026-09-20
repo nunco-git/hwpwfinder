@@ -676,12 +676,24 @@
       + tableResults.filter(r => r.keyword === keyword).length;
   }
 
-  // "추출값 병합하기": 이미 각 행에서 개별 추출된 결과들을 모아 통합 결과(자동)를 만든다.
+  // "추출값 병합하기": 등록된 모든 단어에 대해 지금 설정된 방식으로 추출을 실행한 뒤,
+  // 그 결과들을 모아 통합 결과(자동)를 만든다.
+  // (예전에는 각 행의 "추출하기"를 미리 눌러둔 결과만 모았는데, 그러면 단어를 추가하거나
+  //  옵션을 바꾼 뒤 바로 이 버튼을 누르면 아무 데이터도 없어서 통합 결과와 다운로드가
+  //  전부 비어있는 것처럼 보이는 문제가 있었다. 여기서 직접 추출까지 수행해 해결한다.)
   runBtn.addEventListener('click', () => {
     statusEl.textContent = '';
     const kwRows = getKeywordRows();
 
     if (kwRows.length === 0) { statusEl.textContent = '찾을 단어를 한 개 이상 입력해주세요.'; return; }
+
+    if (!extractedText.trim()) { statusEl.textContent = '파일을 먼저 업로드해주세요.'; return; }
+
+    kwRows.forEach(rowData => {
+      if (rowData.word || rowData.line || rowData.nextline || rowData.table) {
+        extractForKeywordRow(rowData);
+      }
+    });
 
     lastModeFlags = {
       word: kwRows.some(r => r.word),
