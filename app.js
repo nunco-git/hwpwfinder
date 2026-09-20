@@ -923,6 +923,7 @@
   }
 
   downloadBtn.addEventListener('click', () => {
+   try {
     const wb = XLSX.utils.book_new();
     let added = false;
 
@@ -992,15 +993,17 @@
     }
     const label = sanitizeFilenamePart(lastKeywords.length > 0 ? lastKeywords[0] : 'result');
     const filename = `단어추출_${label}.xlsx`;
-    try {
-      XLSX.writeFile(wb, filename);
-      // [수정] 다운로드 버튼을 눌러도 화면에는 아무 확인 표시가 없어서, 실제로는 파일이
-      // 다운로드 폴더에 저장됐는데도 "반응이 없다"고 느껴질 수 있었다. 완료 메시지를 보여준다.
-      statusEl.textContent = `✅ "${filename}" 다운로드 완료 (브라우저의 다운로드 폴더를 확인해주세요)`;
-    } catch (err) {
-      // 브라우저 팝업 차단, 다운로드 정책 등으로 실패한 경우 원인을 화면에 보여준다.
-      statusEl.textContent = '다운로드 중 오류가 발생했습니다: ' + err.message;
-    }
+    XLSX.writeFile(wb, filename);
+    // [수정] 다운로드 버튼을 눌러도 화면에는 아무 확인 표시가 없어서, 실제로는 파일이
+    // 다운로드 폴더에 저장됐는데도 "반응이 없다"고 느껴질 수 있었다. 완료 메시지를 보여준다.
+    statusEl.textContent = `✅ "${filename}" 다운로드 완료 (브라우저의 다운로드 폴더를 확인해주세요)`;
+   } catch (err) {
+    // [수정] 예전에는 XLSX.writeFile() 호출 한 줄만 try/catch로 감싸서, 그 앞의 시트 생성
+    // 과정(XLSX.utils.aoa_to_sheet 등)에서 예외가 나면 아무 표시도 없이 조용히 실패했다.
+    // 버튼 클릭 전체를 감싸서 어떤 단계에서 실패하든 반드시 화면에 원인이 보이게 한다.
+    statusEl.textContent = '다운로드 중 오류가 발생했습니다: ' + err.message;
+    console.error('다운로드 오류:', err);
+   }
   });
 
   /* ---------- 설정 저장/불러오기 (브라우저에 여러 개 이름 붙여 저장 / 파일 저장) ---------- */
