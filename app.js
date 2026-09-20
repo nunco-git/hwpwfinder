@@ -492,8 +492,12 @@
     if (activeTab === 'agg') {
       kwPreviewView.style.display = 'none';
       aggView.style.display = '';
+      aggView.classList.remove('hidden'); // [수정] index.html에 처음부터 class="hidden"이 붙어있어서
+                                           // style.display만 바꿔서는 CSS의 .hidden 규칙(주로 !important)에
+                                           // 가려 화면에 안 보이는 문제가 있었다. 클래스를 직접 제거해준다.
     } else {
       aggView.style.display = 'none';
+      aggView.classList.add('hidden');
       kwPreviewView.style.display = '';
       renderKeywordPreview(activeTab);
     }
@@ -881,6 +885,7 @@
       aggRows = [];
       aggEmpty.style.display = '';
       aggTableWrap.style.display = 'none';
+      aggTableWrap.classList.add('hidden');
       aggTableWrap.innerHTML = '';
       if (aggSource) aggEmpty.textContent = '통합할 수 있는 일치 항목이 없습니다.';
       else if (lastModeFlags.word || lastModeFlags.line || lastModeFlags.nextline || lastModeFlags.table) aggEmpty.textContent = '통합할 결과가 없습니다. "뒤 단어·해당 줄·다음 줄·표 옆칸" 중 하나 이상에서 일치 항목이 있어야 만들어집니다.';
@@ -891,6 +896,10 @@
     aggRows = agg.dataRows;
     aggEmpty.style.display = 'none';
     aggTableWrap.style.display = '';
+    // [수정] index.html에서 #agg-table-wrap이 처음부터 class="table-wrap hidden"으로 시작한다.
+    // style.display만 바꾸면 CSS의 .hidden 규칙(주로 !important)에 가려 실제로는 안 보일 수 있어
+    // 클래스를 직접 제거해준다. (병합 개수는 맞는데 표가 안 보이던 문제의 원인)
+    aggTableWrap.classList.remove('hidden');
 
     const headHtml = ['번호', ...agg.headers].map(h => `<th>${escapeHtml(h)}</th>`).join('');
     const bodyHtml = agg.dataRows.map((cells, i) => {
@@ -975,9 +984,23 @@
       }
     }
 
-    if (!added) return;
+    if (!added) {
+      // [수정] 아무 시트도 못 만들었는데 조용히 return만 하면 사용자는 버튼이 반응이 없다고
+      // 느끼게 된다. 화면에 이유를 표시한다.
+      statusEl.textContent = '다운로드할 결과가 없습니다. 먼저 "추출값 병합하기"를 눌러주세요.';
+      return;
+    }
     const label = sanitizeFilenamePart(lastKeywords.length > 0 ? lastKeywords[0] : 'result');
-    XLSX.writeFile(wb, `단어추출_${label}.xlsx`);
+    const filename = `단어추출_${label}.xlsx`;
+    try {
+      XLSX.writeFile(wb, filename);
+      // [수정] 다운로드 버튼을 눌러도 화면에는 아무 확인 표시가 없어서, 실제로는 파일이
+      // 다운로드 폴더에 저장됐는데도 "반응이 없다"고 느껴질 수 있었다. 완료 메시지를 보여준다.
+      statusEl.textContent = `✅ "${filename}" 다운로드 완료 (브라우저의 다운로드 폴더를 확인해주세요)`;
+    } catch (err) {
+      // 브라우저 팝업 차단, 다운로드 정책 등으로 실패한 경우 원인을 화면에 보여준다.
+      statusEl.textContent = '다운로드 중 오류가 발생했습니다: ' + err.message;
+    }
   });
 
   /* ---------- 설정 저장/불러오기 (브라우저에 여러 개 이름 붙여 저장 / 파일 저장) ---------- */
