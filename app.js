@@ -751,15 +751,23 @@
   //      있어서 식별자가 안 겹쳤고, 그 결과 값들이 전부 다른 행으로 흩어졌다(병합이 전혀 안
   //      되는 것처럼 보임). 그래서 식별자를 무시하고 "나온 순서대로" 옆 칸에 나란히 배치하도록
   //      바꿨다.
-  // 2차(이번 수정): 그런데 표에서 여러 행(레코드)을 반복 추출하는 경우, 중간의 한 레코드에서
-  //      특정 단어를 못 찾으면(예: 3명 중 2번째 사람의 "부서" 칸이 비어있음) 순서 기반 배치는
+  // 2차: 그런데 표에서 여러 행(레코드)을 반복 추출하는 경우, 중간의 한 레코드에서 특정
+  //      단어를 못 찾으면(예: 3명 중 2번째 사람의 "부서" 칸이 비어있음) 순서 기반 배치는
   //      그 다음 레코드의 값을 앞으로 당겨버려서 이후 모든 행이 한 칸씩 밀리는 문제가 있었다.
-  //      그래서 이제는 두 가지를 상황에 따라 자동으로 구분한다:
-  //      - 모든 단어가 문서에서 많아야 한 번만 발견된 경우 → 식별자를 무시하고 한 행으로 병합
-  //        (1차 수정과 동일, "문서번호/작성일/담당자" 같은 단발성 필드용)
-  //      - 하나라도 여러 번(표의 여러 행 등) 발견된 경우 → 줄 번호/표 위치(식별자)가 같은
-  //        결과끼리 하나의 레코드로 묶는다. 이렇게 하면 특정 레코드에서 어떤 단어를 못 찾아도
-  //        그 칸만 빈값으로 남고, 다른 레코드의 값이 밀려 들어오지 않는다.
+  //      그래서 줄 번호/표 위치가 정확히 같은 것끼리만 묶도록 되돌렸다.
+  // 3차(이번 수정): 그런데 실제 문서는 표가 아니라, 한 사람(레코드)의 정보가 "이름 / 직급 /
+  //      부서"처럼 여러 줄에 걸쳐 나뉘어 있는 경우가 많다. 이때는 줄 번호가 단어마다 다 달라서
+  //      2차 방식(정확히 같은 줄만 묶기)으로는 애초에 하나도 안 묶이고 전부 흩어진 행으로
+  //      나온다. 그래서 이제는 "레코드 경계"를 다음과 같이 자동으로 찾는다:
+  //      - 등록된 단어 중 문서에서 가장 많이 발견된 단어를 "기준 단어"로 삼는다(보통 매
+  //        레코드마다 한 번씩 나오는 항목, 예: 이름).
+  //      - 기준 단어가 나온 위치(줄 번호, 또는 표의 표번호+행번호)들을 순서대로 나열해서, 그
+  //        사이 구간을 레코드 하나의 범위로 본다.
+  //      - 다른 단어들의 결과는 "어느 구간(레코드)에 위치하는지"를 보고 그 레코드의 칸에
+  //        채운다. 구간 안에 값이 없으면(못 찾았으면) 그 칸은 빈 값으로 남기고, 다음 레코드의
+  //        값이 앞으로 당겨오지 않는다.
+  //      표 안에서 반복되는 경우(표 옆칸 추출)도 표번호+행번호를 좌표로 써서 똑같이 처리되므로
+  //      기존처럼 정확히 동작한다.
   function buildWideFromItems(items, keywords){
     const byKeyword = new Map();
     keywords.forEach(kw => byKeyword.set(kw, []));
@@ -780,34 +788,47 @@
       return { headers, dataRows: [row] };
     }
 
-    // 하나라도 여러 번 발견된 경우: 같은 줄 번호/표 위치(식별자)를 하나의 레코드로 보고 묶는다.
-    // 이 레코드 안에서 특정 단어가 없으면(못 찾았으면) 그 칸은 빈 값('')으로 남긴다.
-    const idKey = (it) => it.idType + ':' + it.id.join('-');
-    const groups = new Map();
-    const order = [];
-    items.forEach(it => {
-      const key = idKey(it);
-      if (!groups.has(key)) { groups.set(key, { idType: it.idType, id: it.id, values: {} }); order.push(key); }
-      const g = groups.get(key);
-      if (g.values[it.keyword] === undefined) g.values[it.keyword] = it.value;
+    // 문서 안에서의 위치를 하나의 정렬 가능한 숫자로 바꾼다. 표 위치는 (표번호, 행번호)를
+    // 하나의 큰 수로 합쳐서 줄 번호와 섞여도 각각 순서대로 비교 가능하게 만든다.
+    function sortKeyOf(it){
+      return it.idType === 'table' ? (it.id[0] * 1000000 + it.id[1]) : it.id[0];
+    }
+
+    // 가장 많이 발견된 단어를 "기준 단어"(레코드 경계)로 삼는다. 개수가 같으면 등록 순서상
+    // 앞선 단어를 우선한다.
+    let anchorKw = keywords[0];
+    let anchorLen = byKeyword.get(anchorKw).length;
+    keywords.forEach(kw => {
+      const len = byKeyword.get(kw).length;
+      if (len > anchorLen) { anchorKw = kw; anchorLen = len; }
     });
 
-    // 문서에 나온 순서(표 번호→행 번호, 또는 줄 번호)대로 행을 정렬한다.
-    order.sort((ka, kb) => {
-      const a = groups.get(ka), b = groups.get(kb);
-      if (a.idType !== b.idType) return a.idType === 'table' ? 1 : -1;
-      const len = Math.max(a.id.length, b.id.length);
-      for (let i = 0; i < len; i++) {
-        const av = a.id[i] || 0, bv = b.id[i] || 0;
-        if (av !== bv) return av - bv;
+    const anchorItems = byKeyword.get(anchorKw).slice().sort((a, b) => sortKeyOf(a) - sortKeyOf(b));
+    const boundaries = anchorItems.map(sortKeyOf);
+
+    // sortKey가 몇 번째 레코드(기준 단어의 몇 번째 등장) 구간에 속하는지 찾는다.
+    // boundaries[i] <= sortKey인 가장 큰 i를 반환(기준 단어의 첫 등장보다 앞선 값은 0번 레코드로 취급).
+    function recordIndexFor(sortKey){
+      let idx = 0;
+      for (let i = 0; i < boundaries.length; i++) {
+        if (sortKey >= boundaries[i]) idx = i; else break;
       }
-      return 0;
+      return idx;
+    }
+
+    const anchorColIdx = keywords.indexOf(anchorKw);
+    const dataRows = anchorItems.map(() => keywords.map(() => ''));
+    anchorItems.forEach((it, i) => { dataRows[i][anchorColIdx] = it.value; });
+
+    keywords.forEach(kw => {
+      if (kw === anchorKw) return;
+      const colIdx = keywords.indexOf(kw);
+      byKeyword.get(kw).forEach(it => {
+        const idx = recordIndexFor(sortKeyOf(it));
+        if (dataRows[idx][colIdx] === '') dataRows[idx][colIdx] = it.value; // 한 레코드에 같은 단어가 여러 번 걸리면 첫 값을 사용
+      });
     });
 
-    const dataRows = order.map(key => {
-      const g = groups.get(key);
-      return keywords.map(kw => (g.values[kw] !== undefined ? g.values[kw] : ''));
-    });
     return { headers, dataRows };
   }
 
