@@ -11,6 +11,7 @@
   const MAX_KEYWORDS = 20;
   const DEFAULT_KEYWORDS = 6;
   const ADD_STEP = 2;
+  let ridCounter = 0;   // 추출위치(행)마다 붙는 고유 번호. 결과는 단어 글자가 아니라 이 번호로 구분한다.
 
   /* ---------- 단어 + 단어별 추출방식 행 (기본 6개, 2개씩 추가, 최대 20개) ---------- */
   function makeKeywordRow(defaults){
@@ -20,6 +21,7 @@
     };
     const row = document.createElement('div');
     row.className = 'keyword-row';
+    row.dataset.rid = String(++ridCounter);
     row.innerHTML = `
       <span class="kw-index">1</span>
       <input type="text" class="keyword-input" placeholder="예: 이름" value="${escapeHtml(d.keyword || '')}">
@@ -45,18 +47,19 @@
             <input type="number" class="kw-count-input kw-count-table" min="1" max="20" value="${d.tableCount || 1}">칸
             (<input type="text" class="kw-table-stopword" placeholder="단어" value="${escapeHtml(d.tableStopWord || '')}">) 단어 앞까지
           </label>
+          <label class="kw-split-label" title="표에서 여러 칸을 가져올 때 한 칸에 이어 붙이지 않고, 칸마다 별도의 열로 나눕니다 (예: 아래 1칸 → 열1, 아래 2칸 → 열2). 쪽 단위로 행 맞추기가 켜져 있을 때 적용됩니다."><input type="checkbox" class="kw-table-split" ${d.tableSplit ? 'checked' : ''}> 칸별 열로 나누기</label>
+          <label class="kw-cont-label" style="display:none" title="위쪽 추출위치에 같은 단어가 있을 때만 나타납니다. 체크하면 위쪽 행이 잡은 위치의 '다음' 등장분(같은 표, 또는 같은 쪽 안)을 이 행이 가져옵니다. 체크하지 않으면 이 행도 처음부터 다시 찾습니다."><input type="checkbox" class="kw-cont" ${d.cont ? 'checked' : ''}> 같은 표(쪽)에서 이어서 찾기</label>
         </div>
         <div class="kw-actions">
           <button type="button" class="row-run-btn" title="이 단어만 지금 바로 추출합니다">추출하기</button>
           <input type="text" class="kw-exclude-input" placeholder="제외할 값" title="여기 입력한 값을 포함하는 추출 결과는 이 단어의 추출 결과에서 제거합니다 (쉼표로 여러 개 구분)" value="${escapeHtml(d.excludeValue || '')}">
           <button type="button" class="exclude-apply-btn" title="입력한 제외 값을 지금 바로 추출 결과에 적용합니다">제외값 반영</button>
-          <button type="button" class="reflect-kw" title="이 단어의 추출 결과를 엑셀 열로 반영">✔ 반영</button>
           <button type="button" class="remove-kw" title="삭제">×</button>
         </div>
       </div>
     `;
     const kwInput = row.querySelector('.keyword-input');
-    kwInput.addEventListener('input', updateReflectButtonStates);
+    kwInput.addEventListener('input', updateContOptions);
 
     row.querySelector('.row-run-btn').addEventListener('click', () => {
       const runBtnEl = row.querySelector('.row-run-btn');
@@ -64,15 +67,15 @@
       if (!extractedText.trim()) { flashRunButton(runBtnEl, '파일 먼저 업로드'); return; }
       if (!rowData.keyword) { flashRunButton(runBtnEl, '단어를 입력하세요'); return; }
       if (!rowData.word && !rowData.line && !rowData.nextline && !rowData.table) { flashRunButton(runBtnEl, '방식을 선택하세요'); return; }
-      extractForKeywordRow(rowData);
+      extractForKeywordRow(rowData, computeOccPlan().get(rowData.rid));
       updateDownloadEnabled();
-      updateReflectButtonStates();
+      updateContOptions();
 
       // 이 행(추출위치)의 탭으로 바로 전환해서 결과를 보여준다.
       const posIdx = row.querySelector('.kw-index').textContent;
       switchToTab('kw-' + posIdx);
 
-      const cnt = countResultsForKeyword(rowData.keyword);
+      const cnt = countResultsForRid(rowData.rid);
       flashRunButton(runBtnEl, cnt > 0 ? `${cnt}건 추출됨` : '결과 없음');
       document.querySelector('.preview-panel-full').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
@@ -84,34 +87,17 @@
       const excludeTerms = row.querySelector('.kw-exclude-input').value
         .split(',').map(s => s.trim()).filter(s => s.length > 0);
       if (excludeTerms.length === 0) { flashExcludeButton(btn, '제외할 값을 입력하세요'); return; }
-      const removedCount = applyExcludeToKeyword(kw, excludeTerms);
+      const removedCount = applyExcludeToRid(row.dataset.rid, excludeTerms);
       updateDownloadEnabled();
-      updateReflectButtonStates();
+      updateContOptions();
       const posIdx = row.querySelector('.kw-index').textContent;
       if (activeTab === 'kw-' + posIdx) renderKeywordPreview(activeTab);
       updateCount();
       flashExcludeButton(btn, removedCount > 0 ? `${removedCount}건 제외됨` : '해당 값 없음');
     });
 
-    row.querySelector('.reflect-kw').addEventListener('click', () => {
-      const kw = kwInput.value.trim();
-      const reflectBtn = row.querySelector('.reflect-kw');
-      if (!kw) { flashReflectButton(reflectBtn, '단어를 입력하세요'); return; }
-      let items = getResultItemsForKeyword(kw);
-      if (items.length === 0) { flashReflectButton(reflectBtn, '추출 결과 없음'); return; }
-      const excludeTerms = row.querySelector('.kw-exclude-input').value
-        .split(',').map(s => s.trim()).filter(s => s.length > 0);
-      if (excludeTerms.length > 0) {
-        items = items.filter(it => !excludeTerms.some(term => String(it.value).includes(term)));
-      }
-      if (items.length === 0) { flashReflectButton(reflectBtn, '제외 후 남은 값 없음'); return; }
-      upsertCommittedColumn(kw, items);
-      renderCommittedChips();
-      updateReflectButtonStates();
-      updateDownloadEnabled();
-    });
     row.querySelector('.remove-kw').addEventListener('click', () => {
-      if (keywordList.children.length > 1) { row.remove(); updateKeywordCount(); renumberKeywordRows(); }
+      if (keywordList.children.length > 1) { const rid = row.dataset.rid; row.remove(); dropRid(rid); updateKeywordCount(); renumberKeywordRows(); updateContOptions(); }
     });
     return row;
   }
@@ -126,16 +112,29 @@
     setTimeout(() => { btn.textContent = '제외값 반영'; }, 1400);
   }
 
-  // 특정 키워드의 현재 추출 결과 중, excludeTerms 중 하나라도 값에 포함된 항목을 실제로 제거한다.
+  // 특정 추출위치(rid)의 현재 추출 결과 중, excludeTerms 중 하나라도 값에 포함된 항목을 실제로 제거한다.
   // 반환값은 제거된 건수.
-  function applyExcludeToKeyword(keyword, excludeTerms){
-    const before = countResultsForKeyword(keyword);
+  function applyExcludeToRid(rid, excludeTerms){
+    const before = countResultsForRid(rid);
     const matches = (v) => excludeTerms.some(t => String(v).includes(t));
-    wordResults = wordResults.filter(r => r.keyword !== keyword || !matches(r.next));
-    lineResults = lineResults.filter(r => r.keyword !== keyword || !matches(r.line));
-    nextLineResults = nextLineResults.filter(r => r.keyword !== keyword || !matches(r.nextLine));
-    tableResults = tableResults.filter(r => r.keyword !== keyword || !matches(r.next));
-    return before - countResultsForKeyword(keyword);
+    wordResults = wordResults.filter(r => r.rid !== rid || !matches(r.next));
+    lineResults = lineResults.filter(r => r.rid !== rid || !matches(r.line));
+    nextLineResults = nextLineResults.filter(r => r.rid !== rid || !matches(r.nextLine));
+    tableResults = tableResults.filter(r => r.rid !== rid || !matches(r.next));
+    return before - countResultsForRid(rid);
+  }
+
+  function clearResultsForRid(rid){
+    wordResults = wordResults.filter(r => r.rid !== rid);
+    lineResults = lineResults.filter(r => r.rid !== rid);
+    nextLineResults = nextLineResults.filter(r => r.rid !== rid);
+    tableResults = tableResults.filter(r => r.rid !== rid);
+  }
+
+  // 행을 삭제했을 때 그 행의 추출 결과도 함께 지운다.
+  function dropRid(rid){
+    clearResultsForRid(rid);
+    updateDownloadEnabled();
   }
 
   function getCount(inputEl){
@@ -149,7 +148,6 @@
       const idx = row.querySelector('.kw-index');
       if (idx) idx.textContent = i + 1;
     });
-    resortCommittedColumns();
     renderKeywordTabs();
   }
 
@@ -170,7 +168,7 @@
     }
     updateKeywordCount();
     renumberKeywordRows();
-    updateReflectButtonStates();
+    updateContOptions();
     if (firstNewRow) firstNewRow.querySelector('input').focus();
   });
 
@@ -192,7 +190,7 @@
   let aggRows = [];
   let aggSource = null;
   let aggFormat = 'wide';
-  let lastKeywords = [];
+  let lastSources = [];   // [{ rid, keyword }] 마지막 병합에 쓴 추출위치들
   let lastModeFlags = { word: false, line: false, nextline: false, table: false };
   let hwpxTables = null;
   let currentFileType = null; // 'hwpx' | 'pdf' | null
@@ -202,19 +200,22 @@
   let pagesDetected = false;   // 쪽 번호를 얻을 수 있었는지 (PDF는 항상, HWPX는 문서에 배치 정보가 있을 때)
   const pageModeEl = document.getElementById('page-mode');
   function pageMode(){ return !pageModeEl || pageModeEl.checked; }
+  const dupModeEl = document.getElementById('dup-mode');
+  function dupMode(){ return dupModeEl && dupModeEl.value === 'rows' ? 'rows' : 'cols'; }
+  let lastMergeNote = '';   // 병합 결과에 대한 안내 문구(열이 많이 펼쳐졌을 때 등)
   function pageOfLine(lineNo){ return pagesDetected ? (linePages[lineNo - 1] || 1) : 1; }
   let activeTab = 'kw-1';
-  let committedColumns = []; // [{ keyword, items: [{idType, id, keyword, value}, ...] }] — "열에 반영"으로 확정된 단어들
 
   for (let i = 0; i < DEFAULT_KEYWORDS; i++) keywordList.appendChild(makeKeywordRow());
   updateKeywordCount();
   renumberKeywordRows();
-  updateReflectButtonStates();
+  updateContOptions();
   switchToTab('kw-1');
 
   // 한 행(DOM)에서 키워드, 선택된 추출 방식, 번째/개수 설정을 읽어온다.
   function getRowData(rowEl){
     return {
+      rid: rowEl.dataset.rid,
       keyword: rowEl.querySelector('.keyword-input').value.trim(),
       word: rowEl.querySelector('.kw-mode-word').checked,
       line: rowEl.querySelector('.kw-mode-line').checked,
@@ -228,48 +229,90 @@
       tableOffset: getCount(rowEl.querySelector('.kw-offset-table')),
       tableCount: getCount(rowEl.querySelector('.kw-count-table')),
       tableStopWord: rowEl.querySelector('.kw-table-stopword').value.trim(),
+      tableSplit: rowEl.querySelector('.kw-table-split').checked,
+      cont: rowEl.querySelector('.kw-cont').checked,
       excludeValue: rowEl.querySelector('.kw-exclude-input').value.trim(),
     };
   }
 
-  // 같은 단어를 중복 입력한 경우, 추출 방식 체크는 OR로 합쳐서 하나로 취급한다. (병합 시 사용)
+  // 단어가 입력된 모든 행을 그대로(합치지 않고) 순서대로 돌려준다.
+  // 같은 단어가 여러 행에 있으면 행마다 따로 추출되고 병합에서도 각각 별도의 열이 된다.
   function getKeywordRows(){
-    const map = new Map();
-    const order = [];
+    const out = [];
     keywordList.querySelectorAll('.keyword-row').forEach(rowEl => {
-      const flags = getRowData(rowEl);
-      if (!flags.keyword) return;
-      const kw = flags.keyword;
-      if (!map.has(kw)) { map.set(kw, flags); order.push(kw); }
-      else {
-        const existing = map.get(kw);
-        existing.word = existing.word || flags.word;
-        existing.line = existing.line || flags.line;
-        existing.nextline = existing.nextline || flags.nextline;
-        existing.table = existing.table || flags.table;
-        existing.wordOffset = Math.max(existing.wordOffset, flags.wordOffset);
-        existing.wordCount = Math.max(existing.wordCount, flags.wordCount);
-        existing.nextlineOffset = Math.max(existing.nextlineOffset, flags.nextlineOffset);
-        existing.nextlineCount = Math.max(existing.nextlineCount, flags.nextlineCount);
-        existing.tableOffset = Math.max(existing.tableOffset, flags.tableOffset);
-        existing.tableCount = Math.max(existing.tableCount, flags.tableCount);
-      }
+      const d = getRowData(rowEl);
+      if (d.keyword) out.push(d);
     });
-    return order.map(k => map.get(k));
+    return out;
+  }
+
+  // "같은 표(쪽)에서 이어서 찾기" 계획: 같은 단어가 위쪽 행에 있고 이 행에 체크가 되어 있으면,
+  // 위쪽 행이 가져간 등장분의 다음 것(1번째, 2번째, …)을 이 행이 가져가도록 몇 번째인지(occ)를 정한다.
+  // 이어지는 체인의 맨 앞 행은 자동으로 "첫 번째 등장분만" 가져간다. 체인에 속하지 않은 행은 null(= 모든 등장분).
+  function computeOccPlan(){
+    const plan = new Map();
+    const last = new Map();   // 단어 -> 직전에 나온 같은 단어 행의 rid
+    keywordList.querySelectorAll('.keyword-row').forEach(rowEl => {
+      const kw = rowEl.querySelector('.keyword-input').value.trim();
+      if (!kw) return;
+      const rid = rowEl.dataset.rid;
+      const cont = rowEl.querySelector('.kw-cont').checked;
+      if (cont && last.has(kw)) {
+        const prevRid = last.get(kw);
+        if (plan.get(prevRid) == null) plan.set(prevRid, 0);
+        plan.set(rid, plan.get(prevRid) + 1);
+      } else {
+        plan.set(rid, null);
+      }
+      last.set(kw, rid);
+    });
+    return plan;
+  }
+
+  // 같은 단어가 위쪽 행에 이미 있는 행에만 "이어서 찾기" 체크박스를 보여준다.
+  function updateContOptions(){
+    const seen = new Set();
+    keywordList.querySelectorAll('.keyword-row').forEach(row => {
+      const kw = row.querySelector('.keyword-input').value.trim();
+      const lab = row.querySelector('.kw-cont-label');
+      if (lab) lab.style.display = (kw && seen.has(kw)) ? '' : 'none';
+      if (kw) seen.add(kw);
+    });
+  }
+
+  // 열 이름: 같은 단어의 첫 행은 단어 그대로, 두 번째 행부터는 "단어 (위치N)"으로 구분한다.
+  function sourceLabelMap(){
+    const map = new Map();
+    const seen = new Set();
+    keywordList.querySelectorAll('.keyword-row').forEach((row, i) => {
+      const kw = row.querySelector('.keyword-input').value.trim();
+      if (!kw) return;
+      map.set(row.dataset.rid, seen.has(kw) ? `${kw} (위치${i + 1})` : kw);
+      seen.add(kw);
+    });
+    return map;
   }
 
   /* ---------- 통합 결과 형식 토글 ---------- */
   document.querySelectorAll('input[name="agg-format"]').forEach(radio => {
     radio.addEventListener('change', () => {
       aggFormat = document.querySelector('input[name="agg-format"]:checked').value;
-      renderAggTable(lastKeywords);
+      renderAggTable(lastSources);
       if (activeTab === 'agg') updateCount();
     });
   });
 
+  function syncDupModeState(){ if (dupModeEl) dupModeEl.disabled = !pageMode(); }
   if (pageModeEl) {
     pageModeEl.addEventListener('change', () => {
-      renderAggTable(lastKeywords);
+      syncDupModeState();
+      renderAggTable(lastSources);
+      if (activeTab === 'agg') updateCount();
+    });
+  }
+  if (dupModeEl) {
+    dupModeEl.addEventListener('change', () => {
+      renderAggTable(lastSources);
       if (activeTab === 'agg') updateCount();
     });
   }
@@ -396,13 +439,13 @@
     document.querySelector('input[name="agg-format"][value="wide"]').checked = true;
     aggFormat = 'wide';
     if (pageModeEl) pageModeEl.checked = true;
+    if (dupModeEl) dupModeEl.value = 'cols';
+    syncDupModeState();
 
     wordResults = []; lineResults = []; nextLineResults = []; tableResults = [];
-    aggRows = []; aggSource = null; lastKeywords = [];
+    aggRows = []; aggSource = null; lastSources = [];
     lastModeFlags = { word: false, line: false, nextline: false, table: false };
-    committedColumns = [];
-    renderCommittedChips();
-    updateReflectButtonStates();
+    updateContOptions();
     renderAggTable([]);
     switchToTab('kw-1');
     downloadBtn.disabled = true;
@@ -622,12 +665,13 @@
       return;
     }
 
+    const rid = row.dataset.rid;
     const rows = [];
     const pg = (r) => pagesDetected ? `${r.page}쪽 · ` : '';
-    wordResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '뒤 단어', loc: `${pg(r)}${r.lineNo}줄`, value: r.next }));
-    lineResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '해당 줄', loc: `${pg(r)}${r.lineNo}줄`, value: r.line }));
-    nextLineResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '다음 줄', loc: `${pg(r)}${r.lineNo}줄`, value: r.nextLine }));
-    tableResults.filter(r => r.keyword === keyword).forEach(r => rows.push({ mode: '표 옆칸', loc: `${pg(r)}표${r.tableNo}-행${r.rowNo}`, value: r.next }));
+    wordResults.filter(r => r.rid === rid).forEach(r => rows.push({ mode: '뒤 단어', loc: `${pg(r)}${r.lineNo}줄`, value: r.next }));
+    lineResults.filter(r => r.rid === rid).forEach(r => rows.push({ mode: '해당 줄', loc: `${pg(r)}${r.lineNo}줄`, value: r.line }));
+    nextLineResults.filter(r => r.rid === rid).forEach(r => rows.push({ mode: '다음 줄', loc: `${pg(r)}${r.lineNo}줄`, value: r.nextLine }));
+    tableResults.filter(r => r.rid === rid).forEach(r => rows.push({ mode: '표 옆칸', loc: `${pg(r)}표${r.tableNo}-행${r.rowNo}`, value: r.next }));
 
     if (rows.length === 0) {
       kwPreviewView.innerHTML = `<div class="empty">"${escapeHtml(keyword)}"의 추출 결과가 없습니다. 이 위치의 "추출하기"를 눌러주세요.</div>`;
@@ -677,7 +721,7 @@
       const idx = parseInt(activeTab.slice(3), 10);
       const row = keywordList.children[idx - 1];
       const keyword = row ? row.querySelector('.keyword-input').value.trim() : '';
-      n = keyword ? countResultsForKeyword(keyword) : 0;
+      n = (row && keyword) ? countResultsForRid(row.dataset.rid) : 0;
     }
     resultCount.textContent = n ? `${n}건 발견` : '';
   }
@@ -718,17 +762,31 @@
     return vals;
   }
 
-  function extractForKeywordRow(rowData){
-    const keyword = rowData.keyword;
-    wordResults = wordResults.filter(r => r.keyword !== keyword);
-    lineResults = lineResults.filter(r => r.keyword !== keyword);
-    nextLineResults = nextLineResults.filter(r => r.keyword !== keyword);
-    tableResults = tableResults.filter(r => r.keyword !== keyword);
+  // 같은 묶음(표 또는 쪽) 안에서 occ번째(0부터) 등장분만 남긴다.
+  function takeOccurrence(arr, occ){
+    const cnt = new Map();
+    const out = [];
+    arr.forEach(it => {
+      const c = cnt.get(it._g) || 0;
+      cnt.set(it._g, c + 1);
+      if (c === occ) out.push(it);
+    });
+    return out;
+  }
 
+  // occ: null이면 찾은 모든 등장분, 숫자면 같은 표(표 옆칸) / 같은 쪽(그 외 방식) 안에서 occ번째 등장분만.
+  function extractForKeywordRow(rowData, occ){
+    const keyword = rowData.keyword;
+    const rid = rowData.rid;
+    clearResultsForRid(rid);
+
+    const wRes = [], lRes = [], nRes = [], tRes = [];
     const lines = extractedText.split(/\r\n|\r|\n/);
 
     lines.forEach((line, lineIdx) => {
       const lineNo = lineIdx + 1;
+      const page = pageOfLine(lineNo);
+      const g = 'p' + page;
       const tokens = line.split(/\s+/).filter(t => t.length > 0);
 
       if (rowData.word) {
@@ -737,7 +795,7 @@
             const start = i + rowData.wordOffset;
             const nextTokens = tokens.slice(start, start + rowData.wordCount);
             if (nextTokens.length > 0) {
-              wordResults.push({ lineNo, page: pageOfLine(lineNo), keyword, found: tokens[i], next: nextTokens.join(' ') });
+              wRes.push({ rid, lineNo, page, _g: g, keyword, found: tokens[i], next: nextTokens.join(' ') });
             }
           }
         }
@@ -745,7 +803,7 @@
 
       if (rowData.line && line.includes(keyword)) {
         const matchCount = tokens.filter(t => t === keyword).length || (line.split(keyword).length - 1);
-        lineResults.push({ lineNo, page: pageOfLine(lineNo), keyword, matchCount, line });
+        lRes.push({ rid, lineNo, page, _g: g, keyword, matchCount, line });
       }
 
       if (rowData.nextline && line.includes(keyword)) {
@@ -753,7 +811,7 @@
         const start = lineIdx + rowData.nextlineOffset;
         const nextChunk = lines.slice(start, start + rowData.nextlineCount).join('\n');
         if (nextChunk.length > 0) {
-          nextLineResults.push({ lineNo, page: pageOfLine(lineNo), keyword, matchCount, nextLine: nextChunk });
+          nRes.push({ rid, lineNo, page, _g: g, keyword, matchCount, nextLine: nextChunk });
         }
       }
     });
@@ -767,8 +825,9 @@
               if (cells[c].includes(keyword)) {
                 const nextCells = collectDirectionalCells(rows, cells, rIdx, c, rowData.tableDirection, rowData.tableOffset, rowData.tableCount, rowData.tableStopWord);
                 if (nextCells.length > 0) {
-                  tableResults.push({
-                    tableNo: tIdx + 1, rowNo: rIdx + 1, keyword, found: cells[c], next: nextCells.join(' / '),
+                  tRes.push({
+                    rid, tableNo: tIdx + 1, rowNo: rIdx + 1, _g: 't' + tIdx, keyword, found: cells[c],
+                    next: nextCells.join(' / '), parts: nextCells, split: !!rowData.tableSplit,
                     page: (pagesDetected && meta) ? meta.page : 1,
                     pos: (meta && meta.rowLines[rIdx]) || (tIdx * 1000 + rIdx + 1)
                   });
@@ -783,20 +842,23 @@
           : '표 구조 정보가 없습니다. .hwpx 파일에 표가 포함되어 있는지 확인해주세요.';
       }
     }
+
+    const pick = (arr) => (occ == null ? arr : takeOccurrence(arr, occ));
+    pick(wRes).forEach(x => wordResults.push(x));
+    pick(lRes).forEach(x => lineResults.push(x));
+    pick(nRes).forEach(x => nextLineResults.push(x));
+    pick(tRes).forEach(x => tableResults.push(x));
   }
 
-  function countResultsForKeyword(keyword){
-    return wordResults.filter(r => r.keyword === keyword).length
-      + lineResults.filter(r => r.keyword === keyword).length
-      + nextLineResults.filter(r => r.keyword === keyword).length
-      + tableResults.filter(r => r.keyword === keyword).length;
+  function countResultsForRid(rid){
+    return wordResults.filter(r => r.rid === rid).length
+      + lineResults.filter(r => r.rid === rid).length
+      + nextLineResults.filter(r => r.rid === rid).length
+      + tableResults.filter(r => r.rid === rid).length;
   }
 
-  // "추출값 병합하기": 등록된 모든 단어에 대해 지금 설정된 방식으로 추출을 실행한 뒤,
-  // 그 결과들을 모아 통합 결과(자동)를 만든다.
-  // (예전에는 각 행의 "추출하기"를 미리 눌러둔 결과만 모았는데, 그러면 단어를 추가하거나
-  //  옵션을 바꾼 뒤 바로 이 버튼을 누르면 아무 데이터도 없어서 통합 결과와 다운로드가
-  //  전부 비어있는 것처럼 보이는 문제가 있었다. 여기서 직접 추출까지 수행해 해결한다.)
+  // "추출값 병합하기": 입력된 모든 추출위치(행)에 대해 지금 설정된 방식으로 추출을 실행한 뒤,
+  // 그 결과들을 모아 통합 결과(자동)를 만든다. 같은 단어가 여러 행에 있으면 행마다 별도의 열이 된다.
   runBtn.addEventListener('click', () => {
     statusEl.textContent = '';
     const kwRows = getKeywordRows();
@@ -805,9 +867,14 @@
 
     if (!extractedText.trim()) { statusEl.textContent = '파일을 먼저 업로드해주세요.'; return; }
 
+    const plan = computeOccPlan();
     kwRows.forEach(rowData => {
       if (rowData.word || rowData.line || rowData.nextline || rowData.table) {
-        extractForKeywordRow(rowData);
+        extractForKeywordRow(rowData, plan.get(rowData.rid));
+        const ex = (rowData.excludeValue || '').split(',').map(s => s.trim()).filter(s => s.length > 0);
+        if (ex.length > 0) applyExcludeToRid(rowData.rid, ex);
+      } else {
+        clearResultsForRid(rowData.rid);
       }
     });
 
@@ -819,30 +886,30 @@
     };
 
     setAggSource();
-    lastKeywords = kwRows.map(r => r.keyword);
+    lastSources = kwRows.map(r => ({ rid: r.rid, keyword: r.keyword }));
 
-    renderAggTable(lastKeywords);
+    renderAggTable(lastSources);
     switchToTab('agg');
     updateDownloadEnabled();
-    updateReflectButtonStates();
+    updateContOptions();
 
     if (wordResults.length === 0 && lineResults.length === 0 && nextLineResults.length === 0 && tableResults.length === 0) {
-      statusEl.textContent = '병합할 결과가 없습니다. 먼저 각 단어의 "추출하기"를 눌러주세요.';
+      statusEl.textContent = '병합할 결과가 없습니다. 각 추출위치에 단어와 추출 방식을 선택했는지 확인해주세요.';
     } else if (!statusEl.textContent) {
-      statusEl.textContent = `${lastKeywords.length}개 단어의 결과를 병합했습니다.`;
+      statusEl.textContent = `${lastSources.length}개 추출위치의 결과를 병합했습니다.` + (lastMergeNote ? ' ' + lastMergeNote : '');
     }
   });
 
   // 통합 결과의 원본: 뒤 단어 / 해당 줄 / 다음 줄 / 표 옆칸 네 가지 결과를 모두 하나의 목록으로 합친다.
-  // 모든 항목에는 찾은 쪽(page)과 문서 안에서의 순서(pos = 문서 전체 기준 줄 번호)가 붙는다.
-  // keywordFilter가 있으면 그 단어의 결과만 뽑는다("열에 반영" 버튼이 사용).
-  function makeItems(keywordFilter){
-    const ok = (kw) => keywordFilter == null || kw === keywordFilter;
+  // 모든 항목에는 추출위치(rid), 찾은 쪽(page), 문서 안에서의 순서(pos = 문서 전체 기준 줄 번호)가 붙고,
+  // parts는 그 항목이 만들어낼 열 값들이다(대부분 1개, 표의 "칸별 열로 나누기"일 때 여러 개).
+  function makeItems(ridFilter){
+    const ok = (rid) => ridFilter == null || rid === ridFilter;
     const items = [];
-    wordResults.forEach(it => { if (ok(it.keyword)) items.push({ idType: 'line', id: [it.lineNo], page: it.page, pos: it.lineNo, keyword: it.keyword, value: it.next }); });
-    lineResults.forEach(it => { if (ok(it.keyword)) items.push({ idType: 'line', id: [it.lineNo], page: it.page, pos: it.lineNo, keyword: it.keyword, value: it.line }); });
-    nextLineResults.forEach(it => { if (ok(it.keyword)) items.push({ idType: 'line', id: [it.lineNo], page: it.page, pos: it.lineNo, keyword: it.keyword, value: it.nextLine }); });
-    tableResults.forEach(it => { if (ok(it.keyword)) items.push({ idType: 'table', id: [it.tableNo, it.rowNo], page: it.page, pos: it.pos, keyword: it.keyword, value: it.next }); });
+    wordResults.forEach(it => { if (ok(it.rid)) items.push({ idType: 'line', id: [it.lineNo], page: it.page, pos: it.lineNo, rid: it.rid, keyword: it.keyword, value: it.next, parts: [it.next] }); });
+    lineResults.forEach(it => { if (ok(it.rid)) items.push({ idType: 'line', id: [it.lineNo], page: it.page, pos: it.lineNo, rid: it.rid, keyword: it.keyword, value: it.line, parts: [it.line] }); });
+    nextLineResults.forEach(it => { if (ok(it.rid)) items.push({ idType: 'line', id: [it.lineNo], page: it.page, pos: it.lineNo, rid: it.rid, keyword: it.keyword, value: it.nextLine, parts: [it.nextLine] }); });
+    tableResults.forEach(it => { if (ok(it.rid)) items.push({ idType: 'table', id: [it.tableNo, it.rowNo], page: it.page, pos: it.pos, rid: it.rid, keyword: it.keyword, value: it.next, parts: (it.split && it.parts) ? it.parts : [it.next] }); });
     return items;
   }
 
@@ -851,171 +918,167 @@
     aggSource = items.length > 0 ? { items } : null;
   }
 
-  function getResultItemsForKeyword(keyword){
-    return makeItems(keyword);
+  function getResultItemsForRid(rid){
+    return makeItems(rid);
+  }
+
+  // matrix[행][열(sources 순서)] = 그 칸에 들어갈 항목 배열(보통 0~1개, 같은 쪽·표에서 여러 번 찾았으면 여러 개).
+  // 여러 개면 옆 열로 펼치고("단어 (2)"), 표 값이 여러 칸이면 "단어 [칸2]"처럼 열을 더 만든다.
+  function layoutMatrix(sources, matrix, pages){
+    lastMergeNote = '';
+    const labels = sourceLabelMap();
+    const hitsW = sources.map((s, si) => matrix.reduce((m, r) => Math.max(m, r[si].length), 1));
+    const partsW = sources.map((s, si) => {
+      let m = 1;
+      matrix.forEach(r => r[si].forEach(it => { m = Math.max(m, it.parts.length); }));
+      return m;
+    });
+    const headers = [];
+    sources.forEach((s, si) => {
+      const base = labels.get(s.rid) || s.keyword;
+      for (let j = 0; j < hitsW[si]; j++) {
+        for (let p = 0; p < partsW[si]; p++) {
+          headers.push(base + (j ? ` (${j + 1})` : '') + (p ? ` [칸${p + 1}]` : ''));
+        }
+      }
+    });
+    const dataRows = matrix.map(r => {
+      const row = [];
+      sources.forEach((s, si) => {
+        for (let j = 0; j < hitsW[si]; j++) {
+          for (let p = 0; p < partsW[si]; p++) {
+            const it = r[si][j];
+            row.push(it && it.parts[p] !== undefined ? it.parts[p] : '');
+          }
+        }
+      });
+      return row;
+    });
+    const wide = sources.map((s, si) => ({ s, n: hitsW[si] })).filter(x => x.n >= 6);
+    if (wide.length > 0) {
+      const nm = labels.get(wide[0].s.rid) || wide[0].s.keyword;
+      lastMergeNote = `"${nm}"이(가) 한 쪽(표)에 최대 ${wide[0].n}번 나와 열이 ${wide[0].n}개로 펼쳐졌습니다. 목록처럼 여러 건이 반복되는 문서라면 "행으로 나누기"를 선택해보세요.`;
+    }
+    return { headers, dataRows, pages };
   }
 
   // [쪽 기준 정렬] 같은 쪽에서 찾은 값끼리 한 행으로 묶는다.
-  //  - 어떤 쪽에 특정 단어의 값이 없으면 그 칸만 비워둔다. 다른 쪽의 값이 끌려와서 한 칸씩 밀리는 일이 없다.
+  //  - 어떤 쪽에 특정 열의 값이 없으면 그 칸만 비워둔다. 다른 쪽의 값이 끌려와서 밀리는 일이 없다.
   //  - 값이 하나도 없는 쪽은 행이 만들어지지 않는다(건너뜀).
-  //  - 한 쪽 안에 같은 단어가 여러 번 나오면(한 쪽에 여러 건이 있는 문서) 그 쪽 안에서만
-  //    "가장 많이 나온 단어"를 기준으로 건을 나눈다(쪽을 넘나들며 밀리지 않는다).
-  //  - 문서 전체에서 모든 단어가 많아야 한 번씩만 나오면(문서번호·작성일처럼 한 번씩만 있는 값들) 쪽이 달라도 한 행.
-  // 반환: { dataRows, pages } (pages[i] = i번째 행이 속한 쪽)
-  function alignByPage(byKeyword, keywords){
-    const listOf = (kw) => byKeyword.get(kw) || [];
-    const totalMax = keywords.reduce((m, kw) => Math.max(m, listOf(kw).length), 0);
-    if (totalMax === 0) return { dataRows: [], pages: [] };
+  //  - 문서 전체에서 모든 열이 많아야 한 번씩만 나오면(문서번호·작성일처럼 한 번씩만 있는 값들) 쪽이 달라도 한 행.
+  //  - 한 쪽 안에 같은 열의 값이 여러 번 나오면 (dupMode)
+  //      'cols': 값을 버리지 않고 옆 열로 펼친다 → 단어, 단어 (2), 단어 (3) …
+  //      'rows': 가장 많이 나온 열을 기준으로 그 쪽 안에서 여러 건(행)으로 나눈다.
+  //  - 쪽 정보를 못 얻은 문서(HWPX)는 표 번호를 묶음 기준으로 쓴다(표 하나가 한 행).
+  // sources: 열 목록 [{rid, keyword}], byRid: rid -> 항목 배열
+  function groupKeyOf(it){
+    if (pagesDetected) return 'p' + it.page;
+    return it.idType === 'table' ? 't' + it.id[0] : 'p1';
+  }
+
+  function alignByPage(byRid, sources){
+    const listOf = (s) => byRid.get(s.rid) || [];
+    const totalMax = sources.reduce((m, s) => Math.max(m, listOf(s).length), 0);
+    if (totalMax === 0) return layoutMatrix(sources, [], []);
 
     if (totalMax === 1) {
-      const firsts = keywords.map(kw => listOf(kw)[0]);
-      const row = firsts.map(it => it ? it.value : '');
+      const firsts = sources.map(s => listOf(s)[0]);
       const pg = Math.min(...firsts.filter(Boolean).map(it => it.page));
-      return { dataRows: [row], pages: [pg] };
+      return layoutMatrix(sources, [firsts.map(it => it ? [it] : [])], [pg]);
     }
 
-    const pageSet = new Set();
-    keywords.forEach(kw => listOf(kw).forEach(it => pageSet.add(it.page)));
-    const pageList = [...pageSet].sort((a, b) => a - b);
+    const groups = new Map();
+    sources.forEach((s, si) => {
+      listOf(s).forEach(it => {
+        const key = groupKeyOf(it);
+        let g = groups.get(key);
+        if (!g) { g = { page: it.page, minPos: it.pos, perSrc: sources.map(() => []) }; groups.set(key, g); }
+        g.page = Math.min(g.page, it.page);
+        g.minPos = Math.min(g.minPos, it.pos);
+        g.perSrc[si].push(it);
+      });
+    });
+    const groupList = [...groups.values()].sort((a, b) => (a.page - b.page) || (a.minPos - b.minPos));
+    groupList.forEach(g => g.perSrc.forEach(a => a.sort((x, y) => x.pos - y.pos)));
 
-    const dataRows = [];
+    if (dupMode() === 'cols') {
+      return layoutMatrix(sources, groupList.map(g => g.perSrc), groupList.map(g => g.page));
+    }
+
+    const matrix = [];
     const pages = [];
-    pageList.forEach(pg => {
-      const perKw = keywords.map(kw => listOf(kw).filter(it => it.page === pg).sort((a, b) => a.pos - b.pos));
-      const maxLen = perKw.reduce((m, a) => Math.max(m, a.length), 0);
+    groupList.forEach(g => {
+      const perSrc = g.perSrc;
+      const maxLen = perSrc.reduce((m, a) => Math.max(m, a.length), 0);
       if (maxLen === 0) return;
-
       if (maxLen === 1) {
-        dataRows.push(perKw.map(a => a.length ? a[0].value : ''));
-        pages.push(pg);
+        matrix.push(perSrc.map(a => a.length ? [a[0]] : []));
+        pages.push(g.page);
         return;
       }
-
       let anchor = 0;
-      perKw.forEach((a, i) => { if (a.length > perKw[anchor].length) anchor = i; });
-      const bounds = perKw[anchor].map(it => it.pos);
-      const recs = bounds.map(() => keywords.map(() => ''));
-      perKw[anchor].forEach((it, i) => { recs[i][anchor] = it.value; });
-      perKw.forEach((arr, ci) => {
-        if (ci === anchor) return;
+      perSrc.forEach((a, i) => { if (a.length > perSrc[anchor].length) anchor = i; });
+      const bounds = perSrc[anchor].map(it => it.pos);
+      const recs = bounds.map(() => sources.map(() => []));
+      perSrc[anchor].forEach((it, i) => { recs[i][anchor] = [it]; });
+      perSrc.forEach((arr, si) => {
+        if (si === anchor) return;
         arr.forEach(it => {
           let idx = 0;
           for (let i = 0; i < bounds.length; i++) { if (it.pos >= bounds[i]) idx = i; else break; }
-          if (recs[idx][ci] === '') recs[idx][ci] = it.value;
+          if (recs[idx][si].length === 0) recs[idx][si] = [it];
         });
       });
-      recs.forEach(r => { dataRows.push(r); pages.push(pg); });
+      recs.forEach(r => { matrix.push(r); pages.push(g.page); });
     });
-    return { dataRows, pages };
+    return layoutMatrix(sources, matrix, pages);
   }
 
   // 쪽 기준으로 만든 표에는 맨 오른쪽에 "쪽" 열을 붙여 어느 쪽에서 나온 행인지 확인할 수 있게 한다.
-  // (왼쪽 열 번호는 "엑셀파일 N열에 반영" 표시와 맞아야 해서 오른쪽 끝에 둔다.)
   function appendPageColumn(agg){
     if (!agg || !agg.pages || !pagesDetected) return agg;
     return { headers: [...agg.headers, '쪽'], dataRows: agg.dataRows.map((r, i) => [...r, agg.pages[i]]) };
   }
 
-  // items(줄 또는 표 식별자를 가진 결과 목록)를 keywords 순서대로 칼럼화한 { headers, dataRows }로 변환.
-  // 통합 결과(자동)와 반영된 열 병합(수동) 둘 다 이 함수를 공유한다.
-  //
-  // [수정 이력]
-  // 1차: 예전에는 줄 번호/표 위치(식별자)가 정확히 같은 결과끼리만 한 행으로 묶었다. 그런데
-  //      "문서번호", "작성일", "담당자"처럼 문서 전체에 한 번씩만 나오는 값들은 서로 다른 줄에
-  //      있어서 식별자가 안 겹쳤고, 그 결과 값들이 전부 다른 행으로 흩어졌다(병합이 전혀 안
-  //      되는 것처럼 보임). 그래서 식별자를 무시하고 "나온 순서대로" 옆 칸에 나란히 배치하도록
-  //      바꿨다.
-  // 2차: 그런데 표에서 여러 행(레코드)을 반복 추출하는 경우, 중간의 한 레코드에서 특정
-  //      단어를 못 찾으면(예: 3명 중 2번째 사람의 "부서" 칸이 비어있음) 순서 기반 배치는
-  //      그 다음 레코드의 값을 앞으로 당겨버려서 이후 모든 행이 한 칸씩 밀리는 문제가 있었다.
-  //      그래서 줄 번호/표 위치가 정확히 같은 것끼리만 묶도록 되돌렸다.
-  // 3차(이번 수정): 그런데 실제 문서는 표가 아니라, 한 사람(레코드)의 정보가 "이름 / 직급 /
-  //      부서"처럼 여러 줄에 걸쳐 나뉘어 있는 경우가 많다. 이때는 줄 번호가 단어마다 다 달라서
-  //      2차 방식(정확히 같은 줄만 묶기)으로는 애초에 하나도 안 묶이고 전부 흩어진 행으로
-  //      나온다. 그래서 이제는 "레코드 경계"를 다음과 같이 자동으로 찾는다:
-  //      - 등록된 단어 중 문서에서 가장 많이 발견된 단어를 "기준 단어"로 삼는다(보통 매
-  //        레코드마다 한 번씩 나오는 항목, 예: 이름).
-  //      - 기준 단어가 나온 위치(줄 번호, 또는 표의 표번호+행번호)들을 순서대로 나열해서, 그
-  //        사이 구간을 레코드 하나의 범위로 본다.
-  //      - 다른 단어들의 결과는 "어느 구간(레코드)에 위치하는지"를 보고 그 레코드의 칸에
-  //        채운다. 구간 안에 값이 없으면(못 찾았으면) 그 칸은 빈 값으로 남기고, 다음 레코드의
-  //        값이 앞으로 당겨오지 않는다.
-  //      표 안에서 반복되는 경우(표 옆칸 추출)도 표번호+행번호를 좌표로 써서 똑같이 처리되므로
-  //      기존처럼 정확히 동작한다.
-  function buildWideFromItems(items, keywords){
-    const byKeyword = new Map();
-    keywords.forEach(kw => byKeyword.set(kw, []));
-    items.forEach(it => {
-      if (!byKeyword.has(it.keyword)) byKeyword.set(it.keyword, []);
-      byKeyword.get(it.keyword).push(it);
-    });
+  // 통합 결과(자동) 열 만들기.
+  // ('쪽 단위로 행 맞추기'를 끈 경우의 예전 방식: 가장 많이 발견된 열을 "기준"으로 그 등장 위치 사이를 한 건으로 본다.
+  //  기준 열이 없는 구간의 칸은 비워둔다.)
+  function buildWideFromItems(items, sources){
+    const byRid = new Map();
+    sources.forEach(s => byRid.set(s.rid, []));
+    items.forEach(it => { if (byRid.has(it.rid)) byRid.get(it.rid).push(it); });
 
-    const maxLen = keywords.reduce((m, kw) => Math.max(m, byKeyword.get(kw).length), 0);
-    const headers = [...keywords];
+    if (pageMode()) return alignByPage(byRid, sources);
 
-    if (pageMode()) {
-      const r = alignByPage(byKeyword, keywords);
-      return { headers, dataRows: r.dataRows, pages: r.pages };
-    }
-
+    const listOf = (s) => byRid.get(s.rid) || [];
+    const maxLen = sources.reduce((m, s) => Math.max(m, listOf(s).length), 0);
     if (maxLen <= 1) {
-      // 모든 단어가 문서에 많아야 한 번씩만 나온 경우: 줄/표 위치가 달라도 상관없이 한 행으로 합친다.
-      const row = keywords.map(kw => {
-        const arr = byKeyword.get(kw);
-        return arr.length > 0 ? arr[0].value : '';
-      });
-      return { headers, dataRows: [row] };
+      return layoutMatrix(sources, [sources.map(s => listOf(s).length ? [listOf(s)[0]] : [])], null);
     }
 
-    // 문서 안에서의 위치를 하나의 정렬 가능한 숫자로 바꾼다. 표 위치는 (표번호, 행번호)를
-    // 하나의 큰 수로 합쳐서 줄 번호와 섞여도 각각 순서대로 비교 가능하게 만든다.
-    function sortKeyOf(it){
-      return it.idType === 'table' ? (it.id[0] * 1000000 + it.id[1]) : it.id[0];
-    }
-
-    // 가장 많이 발견된 단어를 "기준 단어"(레코드 경계)로 삼는다. 개수가 같으면 등록 순서상
-    // 앞선 단어를 우선한다.
-    let anchorKw = keywords[0];
-    let anchorLen = byKeyword.get(anchorKw).length;
-    keywords.forEach(kw => {
-      const len = byKeyword.get(kw).length;
-      if (len > anchorLen) { anchorKw = kw; anchorLen = len; }
-    });
-
-    const anchorItems = byKeyword.get(anchorKw).slice().sort((a, b) => sortKeyOf(a) - sortKeyOf(b));
-    const boundaries = anchorItems.map(sortKeyOf);
-
-    // sortKey가 몇 번째 레코드(기준 단어의 몇 번째 등장) 구간에 속하는지 찾는다.
-    // boundaries[i] <= sortKey인 가장 큰 i를 반환(기준 단어의 첫 등장보다 앞선 값은 0번 레코드로 취급).
-    function recordIndexFor(sortKey){
-      let idx = 0;
-      for (let i = 0; i < boundaries.length; i++) {
-        if (sortKey >= boundaries[i]) idx = i; else break;
-      }
-      return idx;
-    }
-
-    const anchorColIdx = keywords.indexOf(anchorKw);
-    const dataRows = anchorItems.map(() => keywords.map(() => ''));
-    anchorItems.forEach((it, i) => { dataRows[i][anchorColIdx] = it.value; });
-
-    keywords.forEach(kw => {
-      if (kw === anchorKw) return;
-      const colIdx = keywords.indexOf(kw);
-      byKeyword.get(kw).forEach(it => {
-        const idx = recordIndexFor(sortKeyOf(it));
-        if (dataRows[idx][colIdx] === '') dataRows[idx][colIdx] = it.value; // 한 레코드에 같은 단어가 여러 번 걸리면 첫 값을 사용
+    let anchor = 0;
+    sources.forEach((s, i) => { if (listOf(s).length > listOf(sources[anchor]).length) anchor = i; });
+    const anchorItems = listOf(sources[anchor]).slice().sort((a, b) => a.pos - b.pos);
+    const bounds = anchorItems.map(it => it.pos);
+    const recs = anchorItems.map(() => sources.map(() => []));
+    anchorItems.forEach((it, i) => { recs[i][anchor] = [it]; });
+    sources.forEach((s, si) => {
+      if (si === anchor) return;
+      listOf(s).forEach(it => {
+        let idx = 0;
+        for (let i = 0; i < bounds.length; i++) { if (it.pos >= bounds[i]) idx = i; else break; }
+        if (recs[idx][si].length === 0) recs[idx][si] = [it];
       });
     });
-
-    return { headers, dataRows };
+    return layoutMatrix(sources, recs, null);
   }
 
-  function computeAggregate(keywords){
+  function computeAggregate(sources){
     if (!aggSource) return null;
     const items = aggSource.items;
 
     if (aggFormat === 'long') {
+      const L = sourceLabelMap();
       const hasLine = items.some(it => it.idType === 'line');
       const hasTable = items.some(it => it.idType === 'table');
       const mixed = hasLine && hasTable;
@@ -1026,102 +1089,15 @@
       }
       const withPage = pagesDetected;
       const headers = [...(withPage ? ['쪽'] : []), ...idLabels, '검색어', '값'];
-      const dataRows = items.map(it => [...(withPage ? [it.page] : []), ...idValues(it), it.keyword, it.value]);
+      const dataRows = items.map(it => [...(withPage ? [it.page] : []), ...idValues(it), L.get(it.rid) || it.keyword, it.value]);
       return { headers, dataRows };
     }
 
-    return appendPageColumn(buildWideFromItems(items, keywords));
-  }
-
-  /* ---------- 엑셀 열에 반영 (수동 병합) ---------- */
-  // 어떤 단어가 현재 몇 번째 행(추출위치)에 있는지 찾는다. 행이 삭제되어 없으면 null.
-  function getRowPositionForKeyword(keyword){
-    const rows = [...keywordList.children];
-    for (let i = 0; i < rows.length; i++) {
-      if (rows[i].querySelector('.keyword-input').value.trim() === keyword) return i + 1;
-    }
-    return null;
-  }
-
-  // 반영 순서가 아니라, 단어 목록에서의 실제 위치(행 순서) 기준으로 committedColumns를 정렬해서
-  // 엑셀 열 번호가 항상 각 행의 위치와 일치하도록 맞춘다. (위치를 찾지 못하면 맨 뒤)
-  function resortCommittedColumns(){
-    committedColumns.sort((a, b) => {
-      const pa = getRowPositionForKeyword(a.keyword);
-      const pb = getRowPositionForKeyword(b.keyword);
-      if (pa === null && pb === null) return 0;
-      if (pa === null) return 1;
-      if (pb === null) return -1;
-      return pa - pb;
-    });
-  }
-
-  function upsertCommittedColumn(keyword, items){
-    const idx = committedColumns.findIndex(c => c.keyword === keyword);
-    if (idx >= 0) { committedColumns[idx] = { keyword, items }; return; }
-    committedColumns.push({ keyword, items });
-    resortCommittedColumns();
-  }
-
-  function removeCommittedColumn(keyword){
-    committedColumns = committedColumns.filter(c => c.keyword !== keyword);
-  }
-
-  // 반영된 열은 줄 번호나 표 행 번호가 서로 달라도(문서 안에서 값들이 다른 줄에 있어도)
-  // "같은 행에서 오른쪽으로 계속 반영"되도록, 식별자로 묶지 않고 각 열이 반영된 순서(=문서에
-  // 나온 순서) 그대로 나란히 배치한다. 즉 각 단어의 n번째 값끼리 같은 행에 놓인다.
-  function computeCommittedMerge(){
-    if (committedColumns.length === 0) return null;
-    const keywords = committedColumns.map(c => c.keyword);
-
-    if (pageMode()) {
-      const byKeyword = new Map(committedColumns.map(c => [c.keyword, c.items]));
-      const r = alignByPage(byKeyword, keywords);
-      return appendPageColumn({ headers: keywords, dataRows: r.dataRows, pages: r.pages });
-    }
-
-    const maxLen = Math.max(...committedColumns.map(c => c.items.length));
-    const dataRows = [];
-    for (let i = 0; i < maxLen; i++) {
-      dataRows.push(committedColumns.map(c => (c.items[i] ? c.items[i].value : '')));
-    }
-    return { headers: keywords, dataRows };
-  }
-
-  function renderCommittedChips(){
-    const container = document.getElementById('kw-committed');
-    container.innerHTML = committedColumns.map(c => `
-      <span class="kw-chip">${escapeHtml(c.keyword)}<button type="button" data-kw="${escapeHtml(c.keyword)}" title="반영 취소">×</button></span>
-    `).join('');
-    container.querySelectorAll('button[data-kw]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        removeCommittedColumn(btn.dataset.kw);
-        renderCommittedChips();
-        updateReflectButtonStates();
-        updateDownloadEnabled();
-      });
-    });
-  }
-
-  function updateReflectButtonStates(){
-    const committedKeywords = new Set(committedColumns.map(c => c.keyword));
-    keywordList.querySelectorAll('.keyword-row').forEach((row, i) => {
-      const kw = row.querySelector('.keyword-input').value.trim();
-      const btn = row.querySelector('.reflect-kw');
-      const colNum = i + 2; // 1열은 "번호" 열, 이 행은 항상 자기 위치+1 열
-      const isCommitted = kw && committedKeywords.has(kw);
-      btn.classList.toggle('active', isCommitted);
-      btn.textContent = isCommitted ? `엑셀파일 ${colNum}열에 반영됨` : `엑셀파일 ${colNum}열에 반영`;
-    });
-  }
-
-  function flashReflectButton(btn, message){
-    btn.textContent = message;
-    setTimeout(() => { updateReflectButtonStates(); }, 1200);
+    return appendPageColumn(buildWideFromItems(items, sources));
   }
 
   function updateDownloadEnabled(){
-    downloadBtn.disabled = (wordResults.length === 0 && lineResults.length === 0 && nextLineResults.length === 0 && tableResults.length === 0 && committedColumns.length === 0);
+    downloadBtn.disabled = (wordResults.length === 0 && lineResults.length === 0 && nextLineResults.length === 0 && tableResults.length === 0);
   }
 
   /* ---------- 렌더링 ---------- */
@@ -1173,22 +1149,13 @@
    try {
     const wb = XLSX.utils.book_new();
     let added = false;
+    const L = sourceLabelMap();
 
-    // "열에 반영"으로 확정한 데이터가 있으면, 다른 개별 결과/통합 결과 시트는 빼고
-    // "반영된 열 병합" 시트 하나만 다운로드한다.
-    const committedMerge = computeCommittedMerge();
-    if (committedMerge && committedMerge.dataRows.length > 0) {
-      const rows = [['번호', ...committedMerge.headers]];
-      committedMerge.dataRows.forEach((cells, i) => rows.push([i + 1, ...cells.map(sanitizeCell)]));
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws['!cols'] = [{wch:6}, ...committedMerge.headers.map(() => ({wch:18}))];
-      XLSX.utils.book_append_sheet(wb, ws, '반영된 열 병합');
-      added = true;
-    } else {
+    {
       if (wordResults.length > 0) {
         const P = pagesDetected;
         const rows = [['번호', ...(P ? ['쪽'] : []), '줄 번호', '검색어', '찾은 단어', '바로 다음 단어']];
-        wordResults.forEach((r, i) => rows.push([i + 1, ...(P ? [r.page] : []), r.lineNo, r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
+        wordResults.forEach((r, i) => rows.push([i + 1, ...(P ? [r.page] : []), r.lineNo, L.get(r.rid) || r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
         const ws = XLSX.utils.aoa_to_sheet(rows);
         ws['!cols'] = [{wch:6}, ...(P ? [{wch:6}] : []), {wch:8},{wch:14},{wch:16},{wch:24}];
         XLSX.utils.book_append_sheet(wb, ws, '뒤 단어 결과');
@@ -1198,7 +1165,7 @@
       if (lineResults.length > 0) {
         const P = pagesDetected;
         const rows = [['번호', ...(P ? ['쪽'] : []), '줄 번호', '검색어', '일치 횟수', '해당 줄 전체']];
-        lineResults.forEach((r, i) => rows.push([i + 1, ...(P ? [r.page] : []), r.lineNo, r.keyword, r.matchCount, sanitizeCell(r.line)]));
+        lineResults.forEach((r, i) => rows.push([i + 1, ...(P ? [r.page] : []), r.lineNo, L.get(r.rid) || r.keyword, r.matchCount, sanitizeCell(r.line)]));
         const ws = XLSX.utils.aoa_to_sheet(rows);
         ws['!cols'] = [{wch:6}, ...(P ? [{wch:6}] : []), {wch:8},{wch:14},{wch:10},{wch:70}];
         XLSX.utils.book_append_sheet(wb, ws, '해당 줄 결과');
@@ -1208,7 +1175,7 @@
       if (nextLineResults.length > 0) {
         const P = pagesDetected;
         const rows = [['번호', ...(P ? ['쪽'] : []), '줄 번호', '검색어', '일치 횟수', '다음 줄 전체']];
-        nextLineResults.forEach((r, i) => rows.push([i + 1, ...(P ? [r.page] : []), r.lineNo, r.keyword, r.matchCount, sanitizeCell(r.nextLine)]));
+        nextLineResults.forEach((r, i) => rows.push([i + 1, ...(P ? [r.page] : []), r.lineNo, L.get(r.rid) || r.keyword, r.matchCount, sanitizeCell(r.nextLine)]));
         const ws = XLSX.utils.aoa_to_sheet(rows);
         ws['!cols'] = [{wch:6}, ...(P ? [{wch:6}] : []), {wch:8},{wch:14},{wch:10},{wch:70}];
         XLSX.utils.book_append_sheet(wb, ws, '다음 줄 결과');
@@ -1218,14 +1185,14 @@
       if (tableResults.length > 0) {
         const P = pagesDetected;
         const rows = [['번호', ...(P ? ['쪽'] : []), '표 번호', '행 번호', '검색어', '찾은 칸', '옆 칸 값']];
-        tableResults.forEach((r, i) => rows.push([i + 1, ...(P ? [r.page] : []), r.tableNo, r.rowNo, r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
+        tableResults.forEach((r, i) => rows.push([i + 1, ...(P ? [r.page] : []), r.tableNo, r.rowNo, L.get(r.rid) || r.keyword, sanitizeCell(r.found), sanitizeCell(r.next)]));
         const ws = XLSX.utils.aoa_to_sheet(rows);
         ws['!cols'] = [{wch:6}, ...(P ? [{wch:6}] : []), {wch:8},{wch:8},{wch:14},{wch:20},{wch:24}];
         XLSX.utils.book_append_sheet(wb, ws, '표 옆칸 결과');
         added = true;
       }
 
-      const aggForExport = computeAggregate(lastKeywords);
+      const aggForExport = computeAggregate(lastSources);
       if (aggForExport && aggForExport.dataRows.length > 0) {
         const rows = [['번호', ...aggForExport.headers]];
         aggForExport.dataRows.forEach((cells, i) => rows.push([i + 1, ...cells.map(sanitizeCell)]));
@@ -1242,7 +1209,7 @@
       statusEl.textContent = '다운로드할 결과가 없습니다. 먼저 "추출값 병합하기"를 눌러주세요.';
       return;
     }
-    const label = sanitizeFilenamePart(lastKeywords.length > 0 ? lastKeywords[0] : 'result');
+    const label = sanitizeFilenamePart(lastSources.length > 0 ? lastSources[0].keyword : 'result');
     const filename = `단어추출_${label}.xlsx`;
     XLSX.writeFile(wb, filename);
     // [수정] 다운로드 버튼을 눌러도 화면에는 아무 확인 표시가 없어서, 실제로는 파일이
@@ -1277,7 +1244,7 @@
   function collectAllSettings(){
     const rows = [...keywordList.querySelectorAll('.keyword-row')].map(getRowData);
     const aggRadio = document.querySelector('input[name="agg-format"]:checked');
-    return { version: 1, aggFormat: aggRadio ? aggRadio.value : 'wide', pageMode: pageMode(), rows };
+    return { version: 1, aggFormat: aggRadio ? aggRadio.value : 'wide', pageMode: pageMode(), dupMode: dupMode(), rows };
   }
 
   // 저장된 데이터로 단어 목록·모드·통합 결과 형식을 되살린다.
@@ -1290,13 +1257,21 @@
     rowsData.forEach(rd => keywordList.appendChild(makeKeywordRow(rd)));
     updateKeywordCount();
     renumberKeywordRows();
-    updateReflectButtonStates();
+    // 행이 새로 만들어졌으므로 이전 행에 붙어 있던 추출 결과는 비운다.
+    wordResults = []; lineResults = []; nextLineResults = []; tableResults = [];
+    aggRows = []; aggSource = null; lastSources = [];
+    renderAggTable([]);
+    updateDownloadEnabled();
+    switchToTab('kw-1');
+    updateContOptions();
 
     const fmt = settings.aggFormat === 'long' ? 'long' : 'wide';
     const radio = document.querySelector(`input[name="agg-format"][value="${fmt}"]`);
     if (radio) radio.checked = true;
     aggFormat = fmt;
     if (pageModeEl) pageModeEl.checked = settings.pageMode !== false;
+    if (dupModeEl) dupModeEl.value = settings.dupMode === 'rows' ? 'rows' : 'cols';
+    syncDupModeState();
   }
 
   function loadSavedList(){
